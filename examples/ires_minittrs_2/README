@@ -1,0 +1,1 @@
+python barcode_demultiplex/run.py -csv examples/ires_minittrs_2/C009C.csv -fq1 examples/ires_minittrs_2/test_R2_001.fastq -fq2 examples/ires_minittrs_2/test_R1_001.fastq -helix 2 0 8

@@ -101,13 +101,14 @@ class Seqkitdemultiplexer(object):
 
     def run(self, df, fastq1, fastq2):
         self.r1_length = get_read_length(fastq1)
-        self.r2_length = get_read_length(fastq2)
         f = open(fastq1)
         self.r1_lines = f.readlines()
         f.close()
-        f = open(fastq2)
-        self.r2_lines = f.readlines()
-        f.close()
+        if self.check_rev:
+            self.r2_length = get_read_length(fastq2)
+            f = open(fastq2)
+            self.r2_lines = f.readlines()
+            f.close()
         log.info(f"total number of reads: {len(self.r1_lines) / 4}")
         count = 0
         for i, row in df.iterrows():
@@ -200,6 +201,8 @@ class Seqkitdemultiplexer(object):
                 continue
             f.writelines(self.r1_lines[i : i + 4])
         f.close()
+        if len(self.r2_lines) == 0:
+            return
         f = open(f"{path}/test_mate2.fastq", "w")
         for i in range(0, len(self.r2_lines), 4):
             spl = self.r2_lines[i].split()
@@ -235,7 +238,7 @@ def setup_directories(df, dirname="data"):
     bc = 0
     data = []
     for i, g in df.groupby("full_barcode"):
-        bc_dir = f"{dirname}/bc-{bc:03d}"
+        bc_dir = f"{dirname}/bc-{bc:04d}"
         os.makedirs(bc_dir, exist_ok=True)
         g.to_json(f"{bc_dir}/constructs.json", orient="records")
         f = open(f"{bc_dir}/test.fasta", "w")
@@ -352,6 +355,7 @@ def run_dreem_prog(df, max_barcodes):
     "-fq2",
     "--fastq2",
     required=False,
+    default=None,
     help="the path to the reverse fastq file",
 )
 @click.option(
@@ -375,6 +379,10 @@ def run_dreem_prog(df, max_barcodes):
     type=click.Tuple([int, int, int]),
     required=True,
     multiple=True,
+    help="which helices should we use as barcodes? In the format helix number as it "
+    "appears 5' to 3' and what are the bounds of barcode in the helix. If the "
+    "the barcode is from the beginning of the helix to the 8th position this can "
+    "be specified as -helix 1 0 8 assuming this is the second helix as 0 is the first",
 )
 def cli(rna_csv, fastq1, fastq2, helices, run_dreem, data_path, max_barcodes):
     df = pd.read_csv(rna_csv)
@@ -385,13 +393,15 @@ def cli(rna_csv, fastq1, fastq2, helices, run_dreem, data_path, max_barcodes):
             raise ValueError(
                 f"{c} is a required column for the input csv file!"
             )
-    exit()
     df = find_barcodes(df, helices)
     df_sum = setup_directories(df, data_path)
     log.info(f"{len(df_sum)} unique barcodes found!")
     demult = Seqkitdemultiplexer()
     demult.max = max_barcodes
+    if fastq2 is None:
+        demult.check_rev = False
     demult.run(df_sum, fastq1, fastq2)
+
     if run_dreem:
         run_dreem_prog(df_sum, max_barcodes)
 
