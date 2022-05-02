@@ -2,7 +2,6 @@ import os
 import click
 import pandas as pd
 import subprocess
-import glob
 import sys
 import logging
 import numpy as np
@@ -44,6 +43,13 @@ def get_default_dreem_args():
     return args
 
 
+def does_program_exist(prog_name):
+    if shutil.which(prog_name) is None:
+        return False
+    else:
+        return True
+
+
 def setup_applevel_logger(
     logger_name=APP_LOGGER_NAME, is_debug=True, file_name=None
 ):
@@ -74,79 +80,11 @@ def get_read_length(fastq):
     f = open(fastq)
     lines = f.readlines()
     f.close()
-    min = 10000
+    min_len = 10000
     for i in range(0, len(lines), 4):
-        if len(lines[i + 1]) < min:
-            min = len(lines[i + 1])
-    return min
-
-
-class Grepdemultiplexer(object):
-    def __init__(self):
-        pass
-
-    def run(self, df, hpos, fastq1, fastq2):
-        for i, row in df.iterrows():
-            s = rl.SecStruct(
-                row["structure"], row["sequence"].replace("U", "T")
-            )
-            helices = []
-            for m in s:
-                if m.is_helix():
-                    helices.append(m)
-            path = f"data/{row['name']}/"
-            for hp in hpos:
-                minpos = helices[hp].strands()[0][0]
-                maxpos = helices[hp].strands()[0][-1]
-                spl = helices[hp].sequence().split("&")
-                cmd = f'cut -c {minpos - 10}-{maxpos + 10} {fastq1} | grep -n "{spl[0]}" > {path}/hp_{hp}.out'
-                # print(cmd)
-                # subprocess.call(cmd, shell=True)
-                nums = self.__get_line_nums(glob.glob(path + "/*.out"))
-                # self.__generate_sub_fastqs(nums, fastq1, fastq2, f"data/{row['name']}")
-                os.chdir(path)
-                subprocess.call(
-                    "dreem -fa test.fasta -fq1 test_mate1.fastq -fq2 test_mate2.fastq --dot_bracket test.csv",
-                    shell=True,
-                )
-                os.chdir("../..")
-
-    def __get_nums_from_file(self, file):
-        nums = []
-        f = open(file)
-        lines = f.readlines()
-        for l in lines:
-            spl = l.split(":")
-            nums.append(int(spl[0]))
-        f.close()
-        return set(nums)
-
-    def __get_line_nums(self, files):
-        sets = []
-        for file in files:
-            s = self.__get_nums_from_file(file)
-            sets.append(s)
-        s = sets[0]
-        for i in range(1, len(sets)):
-            s = s.intersection(sets[i])
-        return list(s)
-
-    def __generate_sub_fastqs(self, nums, fastq1, fastq2, outputdir):
-        os.makedirs(outputdir, exist_ok=True)
-        f = open(fastq1)
-        lines_r1 = f.readlines()
-        f.close()
-        f = open(fastq2)
-        lines_r2 = f.readlines()
-        f.close()
-        f1 = open(f"{outputdir}/test_mate1.fastq", "w")
-        f2 = open(f"{outputdir}/test_mate2.fastq", "w")
-        for i in range(0, len(lines_r1), 4):
-            if i + 2 in nums:
-                f1.writelines(lines_r1[i : i + 4])
-                f2.writelines(lines_r2[i : i + 4])
-        f1.close()
-        f2.close()
+        if len(lines[i + 1]) < min_len:
+            min_len = len(lines[i + 1])
+    return min_len
 
 
 class Seqkitdemultiplexer(object):
@@ -159,6 +97,7 @@ class Seqkitdemultiplexer(object):
         self.r2_lines = []
         self.all_ids = []
         self.max = 9999
+        self.reads_used = 0
 
     def run(self, df, fastq1, fastq2):
         self.r1_length = get_read_length(fastq1)
@@ -170,7 +109,6 @@ class Seqkitdemultiplexer(object):
         self.r2_lines = f.readlines()
         f.close()
         log.info(f"total number of reads: {len(self.r1_lines) / 4}")
-        self.reads_used = 0
         count = 0
         for i, row in df.iterrows():
             if count >= self.max:
@@ -229,13 +167,14 @@ class Seqkitdemultiplexer(object):
         cmd = "| ".join(cmds) + f"> {row['path']}/test_rev.fastq"
         subprocess.call(cmd, shell=True)
 
-    def __get_read_ids(self, fpath):
+    @staticmethod
+    def __get_read_ids(fpath):
         f = open(fpath)
         lines = f.readlines()[::4]
         f.close()
         ids = []
-        for l in lines:
-            spl = l.split()
+        for line in lines:
+            spl = line.split()
             ids.append(spl[0])
         return set(ids)
 
@@ -250,9 +189,9 @@ class Seqkitdemultiplexer(object):
         elif self.check_rev:
             ids = self.__get_read_ids(f"{path}/test_rev.fastq")
         self.reads_used += len(ids)
-        for id in ids:
+        for read_id in ids:
             if id not in self.all_ids:
-                self.all_ids.append(id)
+                self.all_ids.append(read_id)
         log.info(f"{path}: {len(ids)}")
         f = open(f"{path}/test_mate1.fastq", "w")
         for i in range(0, len(self.r1_lines), 4):
@@ -272,9 +211,9 @@ class Seqkitdemultiplexer(object):
     def __output_unused_reads(self, fastq1):
         pos_ids = self.__get_read_ids(fastq1)
         ids = []
-        for id in pos_ids:
-            if id not in self.all_ids:
-                ids.append(id)
+        for read_id in pos_ids:
+            if read_id not in self.all_ids:
+                ids.append(read_id)
         f = open(f"test_mate1.fastq", "w")
         for i in range(0, len(self.r1_lines), 4):
             spl = self.r1_lines[i].split()
@@ -355,15 +294,14 @@ def find_barcodes(df, helices):
             all_bounds,
             full_barcode,
         ]
-    df.to_json("test.json", orient="records")
     return df
 
 
-def run_dreem_prog(df, max):
+def run_dreem_prog(df, max_barcodes):
     count = 0
     all_mhs = {}
     for i, row in df.iterrows():
-        if count >= max:
+        if count >= max_barcodes:
             break
         args = get_default_dreem_args()
         path = row["path"]
@@ -392,16 +330,44 @@ def run_dreem_prog(df, max):
     pickle.dump(all_mhs, open("output/BitVector_Files/mutation_histos.p", "wb"))
 
 
-
 # cli #########################################################################
 
 
-@click.command()
-@click.option("-csv", "--rna-csv", required=True)
-@click.option("-fq1", "--fastq1", required=True)
-@click.option("-fq2", "--fastq2", required=False)
-@click.option("-rd", "--run-dreem", is_flag=True)
-@click.option("-m", "--max", default=99999)
+@click.command(
+    help="a lightweight program to demultiplex rna sequencing data from internal"
+    " barcodes sequestered in helices. Required arguments are a csv file thats"
+    " contains the name, sequence and structure of each construct "
+)
+@click.option(
+    "-csv",
+    "--rna-csv",
+    required=True,
+    help="a csv containing the name, sequence and structure of all RNAs that "
+    "have reads",
+)
+@click.option(
+    "-fq1", "--fastq1", required=True, help="the path to the forward fastq file"
+)
+@click.option(
+    "-fq2",
+    "--fastq2",
+    required=False,
+    help="the path to the reverse fastq file",
+)
+@click.option(
+    "-rd",
+    "--run-dreem",
+    is_flag=True,
+    help="should we run dreem after and join all the data into mutational "
+    "histograms?",
+)
+@click.option(
+    "-dp",
+    "--data-path",
+    default="data",
+    help="the location of where to store all the demultiplexed data default='data'",
+)
+@click.option("-m", "--max", "max_barcodes", default=99999)
 @click.option(
     "-helix",
     "--helix",
@@ -410,18 +376,25 @@ def run_dreem_prog(df, max):
     required=True,
     multiple=True,
 )
-def main(rna_csv, fastq1, fastq2, helices, run_dreem, max):
+def cli(rna_csv, fastq1, fastq2, helices, run_dreem, data_path, max_barcodes):
     df = pd.read_csv(rna_csv)
+    log.info(f"{rna_csv} contains {len(df)} unique sequences")
+    required_cols = "name,sequence,structure".split(",")
+    for c in required_cols:
+        if c not in df:
+            raise ValueError(
+                f"{c} is a required column for the input csv file!"
+            )
+    exit()
     df = find_barcodes(df, helices)
-    df_sum = setup_directories(df, "data")
+    df_sum = setup_directories(df, data_path)
     log.info(f"{len(df_sum)} unique barcodes found!")
-    df_sum.to_csv("summary.csv", index=False)
     demult = Seqkitdemultiplexer()
-    demult.max = max
+    demult.max = max_barcodes
     demult.run(df_sum, fastq1, fastq2)
     if run_dreem:
-        run_dreem_prog(df_sum, max)
+        run_dreem_prog(df_sum, max_barcodes)
 
 
 if __name__ == "__main__":
-    main()
+    cli()
