@@ -16,7 +16,7 @@ with open("requirements.txt") as f:
 
 setup(
     name="barcode_demultiplex",
-    version="0.0.1",
+    version="0.0.2",
     author="Joe Yesselman",
     author_email="jyesselm@unl.edu",
     packages=["barcode_demultiplex"],
@@ -29,7 +29,7 @@ setup(
     install_requires=requirements,
     entry_points={
         "console_scripts": [
-            "barcode_demultiplex = barcode_demultiplex.run:cli"
+            "barcode_demultiplex = barcode_demultiplex.cli:cli"
         ]
     },
 )

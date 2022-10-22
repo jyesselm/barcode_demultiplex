@@ -193,6 +193,7 @@ def setup_directories(df, dirname="data"):
         db_file_df.to_csv(f"{bc_dir}/test.csv", index=False)
         row = g.iloc[0]
         data_row = [
+            row["name"],
             bc_dir,
             len(g),
             row["barcodes"],
@@ -204,7 +205,9 @@ def setup_directories(df, dirname="data"):
         bc += 1
     return pd.DataFrame(
         data,
-        columns="path,num,barcodes,barcode_bounds,full_barcode,len".split(","),
+        columns="name,path,num,barcodes,barcode_bounds,full_barcode,len".split(
+            ","
+        ),
     )
 
 
@@ -251,7 +254,7 @@ def run_dreem_prog(df, max_barcodes, include_all_dreem_outputs):
     count = 0
     all_mhs = {}
     for i, row in df.iterrows():
-        if count >= max_barcodes:
+        if count == max_barcodes:
             break
         args = get_default_run_args()
         path = row["path"]
@@ -279,21 +282,24 @@ def run_dreem_prog(df, max_barcodes, include_all_dreem_outputs):
     os.makedirs("output/BitVector_Files/", exist_ok=True)
     pickle.dump(all_mhs, open("output/BitVector_Files/mutation_histos.p", "wb"))
 
+
 def run_dreem_prog_multi(df, max_barcodes):
     log = get_logger("RUN_DREEM")
     count = 0
     for i, row in df.iterrows():
-        if count >= max_barcodes:
+        if count == max_barcodes:
             break
         args = get_default_run_args()
-        path = row["path"]
+        path = os.path.abspath(row["path"])
         args["fasta"] = path + "/test.fasta"
         args["fastq1"] = path + "/test_mate1.fastq"
         args["fastq2"] = path + "/test_mate2.fastq"
         args["dot_bracket"] = path + "/test.csv"
-        dir_name = row["construct"] + "_" + row["code"] + "_" + row["data_type"]
-        print(dir_name)
-        #dreem.run.run(args)
-        #count += 1
-
-
+        os.makedirs(row["full_barcode"], exist_ok=True)
+        os.chdir(row["full_barcode"])
+        try:
+            dreem.run.run(args)
+        except:
+            pass
+        os.chdir("..")
+        count += 1

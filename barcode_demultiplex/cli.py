@@ -91,7 +91,7 @@ def cli(
     demult.run(df_sum, fastq1, fastq2)
 
     if run_dreem:
-        run_dreem_prog(df_sum, max_barcodes)
+        run_dreem_prog(df_sum, max_barcodes, include_all_dreem_outputs)
 
 
 if __name__ == "__main__":
