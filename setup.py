@@ -21,7 +21,9 @@ setup(
     author_email="jyesselm@unl.edu",
     packages=["barcode_demultiplex"],
     py_modules=[
-        "barcode_demultiplex/run",
+        "barcode_demultiplex/cli",
+        "barcode_demultiplex/demuliplex",
+        "barcode_demultiplex/logger",
     ],
     include_package_data=True,
     install_requires=requirements,

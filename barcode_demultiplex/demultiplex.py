@@ -2,8 +2,6 @@ import os
 import click
 import pandas as pd
 import subprocess
-import sys
-import logging
 import numpy as np
 import dreem.run
 import shutil
@@ -11,69 +9,11 @@ import pickle
 
 import rna_library as rl
 from seq_tools.sequence import get_reverse_complement
+from dreem.run import get_default_run_args
+
+from barcode_demultiplex.logger import *
 
 np.warnings.filterwarnings("ignore", category=np.VisibleDeprecationWarning)
-APP_LOGGER_NAME = "barcode-demultiplex"
-
-
-def get_default_dreem_args():
-    args = {
-        "fasta": "",
-        "fastq1": "",
-        "fastq2": None,
-        "dot_bracket": None,
-        "param_file": None,
-        "overwrite": False,
-        "log_level": "INFO",
-        "restore_org_behavior": False,
-        "map_overwrite": False,
-        "skip": False,
-        "skip_fastqc": False,
-        "skip_trim_galore": False,
-        "bt2_alignment_args": None,
-        "bv_overwrite": False,
-        "qscore_cutoff": None,
-        "num_of_surbases": None,
-        "map_score_cutoff": None,
-        "mutation_count_cutoff": None,
-        "percent_length_cutoff": None,
-        "summary_output_only": False,
-        "plot_sequence": False,
-    }
-    return args
-
-
-def does_program_exist(prog_name):
-    if shutil.which(prog_name) is None:
-        return False
-    else:
-        return True
-
-
-def setup_applevel_logger(
-    logger_name=APP_LOGGER_NAME, is_debug=True, file_name=None
-):
-    logger = logging.getLogger(logger_name)
-    logger.setLevel(logging.DEBUG if is_debug else logging.INFO)
-
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
-
-    sh = logging.StreamHandler(sys.stdout)
-    sh.setFormatter(formatter)
-    logger.handlers.clear()
-    logger.addHandler(sh)
-
-    if file_name:
-        fh = logging.FileHandler(file_name)
-        fh.setFormatter(formatter)
-        logger.addHandler(fh)
-
-    return logger
-
-
-log = setup_applevel_logger()
 
 
 def get_read_length(fastq):
@@ -100,6 +40,7 @@ class Seqkitdemultiplexer(object):
         self.reads_used = 0
 
     def run(self, df, fastq1, fastq2):
+        log = get_logger("")
         self.r1_length = get_read_length(fastq1)
         f = open(fastq1)
         self.r1_lines = f.readlines()
@@ -122,7 +63,6 @@ class Seqkitdemultiplexer(object):
             self.__filter_reads(row["path"])
             count += 1
         log.info(f"total reads found: {self.reads_used}")
-        # self.__output_unused_reads(fastq1)
 
     def __run_fwd_demultiplex(self, row, fastq1):
         cmds = []
@@ -135,7 +75,8 @@ class Seqkitdemultiplexer(object):
                 count += 1
                 if count == 1:
                     cmds.append(
-                        f'seqkit grep -s -p "{seq}" -m 1 -P -R {b1 - 10}:{b2 + 10} {fastq1} '
+                        f'seqkit grep -s -p "{seq}" -m 1 -P -R {b1 - 10}:{b2 + 10} '
+                        f"{fastq1} "
                     )
                 else:
                     cmds.append(
@@ -158,7 +99,8 @@ class Seqkitdemultiplexer(object):
                 rev_seq = get_reverse_complement(seq)
                 if count == 1:
                     cmds.append(
-                        f'seqkit grep -s -p "{rev_seq}" -m 1 -P -R {b4 - 10}:{b3 + 10} {fastq2}'
+                        f'seqkit grep -s -p "{rev_seq}" -m 1 -P -R {b4 - 10}:{b3 + 10} '
+                        f"{fastq2}"
                     )
                 else:
                     cmds.append(
@@ -180,6 +122,7 @@ class Seqkitdemultiplexer(object):
         return set(ids)
 
     def __filter_reads(self, path):
+        log = get_logger("")
         ids = set()
         if self.check_fwd and self.check_rev:
             fwd_ids = self.__get_read_ids(f"{path}/test_fwd.fastq")
@@ -300,13 +243,17 @@ def find_barcodes(df, helices):
     return df
 
 
-def run_dreem_prog(df, max_barcodes):
+def run_dreem_prog(df, max_barcodes, include_all_dreem_outputs):
+    # need another file setup for keeping all the output files
+    if include_all_dreem_outputs:
+        return run_dreem_prog_multi(df, max_barcodes)
+    log = get_logger("RUN_DREEM")
     count = 0
     all_mhs = {}
     for i, row in df.iterrows():
         if count >= max_barcodes:
             break
-        args = get_default_dreem_args()
+        args = get_default_run_args()
         path = row["path"]
         args["fasta"] = path + "/test.fasta"
         args["fastq1"] = path + "/test_mate1.fastq"
@@ -332,79 +279,21 @@ def run_dreem_prog(df, max_barcodes):
     os.makedirs("output/BitVector_Files/", exist_ok=True)
     pickle.dump(all_mhs, open("output/BitVector_Files/mutation_histos.p", "wb"))
 
-
-# cli #########################################################################
-
-
-@click.command(
-    help="a lightweight program to demultiplex rna sequencing data from internal"
-    " barcodes sequestered in helices. Required arguments are a csv file thats"
-    " contains the name, sequence and structure of each construct "
-)
-@click.option(
-    "-csv",
-    "--rna-csv",
-    required=True,
-    help="a csv containing the name, sequence and structure of all RNAs that "
-    "have reads",
-)
-@click.option(
-    "-fq1", "--fastq1", required=True, help="the path to the forward fastq file"
-)
-@click.option(
-    "-fq2",
-    "--fastq2",
-    required=False,
-    default=None,
-    help="the path to the reverse fastq file",
-)
-@click.option(
-    "-rd",
-    "--run-dreem",
-    is_flag=True,
-    help="should we run dreem after and join all the data into mutational "
-    "histograms?",
-)
-@click.option(
-    "-dp",
-    "--data-path",
-    default="data",
-    help="the location of where to store all the demultiplexed data default='data'",
-)
-@click.option("-m", "--max", "max_barcodes", default=99999)
-@click.option(
-    "-helix",
-    "--helix",
-    "helices",
-    type=click.Tuple([int, int, int]),
-    required=True,
-    multiple=True,
-    help="which helices should we use as barcodes? In the format helix number as it "
-    "appears 5' to 3' and what are the bounds of barcode in the helix. If the "
-    "the barcode is from the beginning of the helix to the 8th position this can "
-    "be specified as -helix 1 0 8 assuming this is the second helix as 0 is the first",
-)
-def cli(rna_csv, fastq1, fastq2, helices, run_dreem, data_path, max_barcodes):
-    df = pd.read_csv(rna_csv)
-    log.info(f"{rna_csv} contains {len(df)} unique sequences")
-    required_cols = "name,sequence,structure".split(",")
-    for c in required_cols:
-        if c not in df:
-            raise ValueError(
-                f"{c} is a required column for the input csv file!"
-            )
-    df = find_barcodes(df, helices)
-    df_sum = setup_directories(df, data_path)
-    log.info(f"{len(df_sum)} unique barcodes found!")
-    demult = Seqkitdemultiplexer()
-    demult.max = max_barcodes
-    if fastq2 is None:
-        demult.check_rev = False
-    demult.run(df_sum, fastq1, fastq2)
-
-    if run_dreem:
-        run_dreem_prog(df_sum, max_barcodes)
+def run_dreem_prog_multi(df, max_barcodes):
+    log = get_logger("RUN_DREEM")
+    count = 0
+    for i, row in df.iterrows():
+        if count >= max_barcodes:
+            break
+        args = get_default_run_args()
+        path = row["path"]
+        args["fasta"] = path + "/test.fasta"
+        args["fastq1"] = path + "/test_mate1.fastq"
+        args["fastq2"] = path + "/test_mate2.fastq"
+        args["dot_bracket"] = path + "/test.csv"
+        dir_name = row["construct"] + "_" + row["code"] + "_" + row["data_type"]
+        print(dir_name)
+        #dreem.run.run(args)
+        #count += 1
 
 
-if __name__ == "__main__":
-    cli()

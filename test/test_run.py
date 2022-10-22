@@ -1,4 +1,4 @@
-from barcode_demultiplex.run import *
+from barcode_demultiplex.cli import *
 from click.testing import CliRunner
 from pathlib import Path
 import numpy as np
