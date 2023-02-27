@@ -1,6 +1,7 @@
-click==8.1.3
-dreem==0.2.0
-numpy==1.23.1
-pandas==1.4.3
-rna_library==0.1.0
-rna_seq_tools==0.3.0
+wheel
+click
+pandas
+numpy
+rna_seq_tools
+rna_map
+rna_secstruct @ git+https://github.com/jyesselm/rna_secstruct@main

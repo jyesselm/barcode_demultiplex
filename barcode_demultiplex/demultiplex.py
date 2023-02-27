@@ -3,17 +3,17 @@ import click
 import pandas as pd
 import subprocess
 import numpy as np
-import dreem.run
 import shutil
 import pickle
 
-import rna_library as rl
 from seq_tools.sequence import get_reverse_complement
-from dreem.run import get_default_run_args
+from rna_secstruct import SecStruct
+from barcode_demultiplex.external_cmd import does_program_exist
+from barcode_demultiplex.logger import get_logger
 
-from barcode_demultiplex.logger import *
+# from dreem.run import get_default_run_args
 
-np.warnings.filterwarnings("ignore", category=np.VisibleDeprecationWarning)
+log = get_logger("DEMULTIPLEX")
 
 
 def get_read_length(fastq):
@@ -27,7 +27,23 @@ def get_read_length(fastq):
     return min_len
 
 
-class Seqkitdemultiplexer(object):
+class Demultiplexer:
+    def setup(self, df_barcode, outdir):
+        # check if seqkit is installed
+        if not does_program_exist("seqkit"):
+            log.error("seqkit not found")
+            raise ValueError("seqkit not found")
+        setup_directories(df_barcode, outdir)
+
+        self.df_barcode = df_barcode
+        self.outdir = outdir
+        setup_directories(df_barcode, outdir)
+
+    def run(self, fastq1, fastq2):
+        pass
+
+
+class SeqkitdemultiplexerOld:
     def __init__(self):
         self.check_fwd = True
         self.check_rev = True
@@ -40,7 +56,6 @@ class Seqkitdemultiplexer(object):
         self.reads_used = 0
 
     def run(self, df, fastq1, fastq2):
-        log = get_logger("")
         self.r1_length = get_read_length(fastq1)
         f = open(fastq1)
         self.r1_lines = f.readlines()
@@ -99,12 +114,12 @@ class Seqkitdemultiplexer(object):
                 rev_seq = get_reverse_complement(seq)
                 if count == 1:
                     cmds.append(
-                        f'seqkit grep -s -p "{rev_seq}" -m 1 -P -R {b4 - 10}:{b3 + 10} '
+                        f'seqkit grep -s -p "{rev_seq}" -m 1 -P -R {b4 - 5}:{b3 + 5} '
                         f"{fastq2}"
                     )
                 else:
                     cmds.append(
-                        f'seqkit grep -s -p "{rev_seq}" -m 1 -P -R {b4 - 10}:{b3 + 10} '
+                        f'seqkit grep -s -p "{rev_seq}" -m 1 -P -R {b4 - 5}:{b3 + 5} '
                     )
 
         cmd = "| ".join(cmds) + f"> {row['path']}/test_rev.fastq"
@@ -211,7 +226,16 @@ def setup_directories(df, dirname="data"):
     )
 
 
-def find_barcodes(df, helices):
+def find_helix_barcodes(df, helices):
+    """
+    Finds the sequence and bounds of helix barcodes in a dataframe of sequences and
+    and structures
+    :param df: A dtataframe with columns "sequence" and "structure"
+    :param helices: A list of tuples of the form (helix_index, start_pos, end_pos)
+    :return: A dataframe with the same columns as the input, plus the columns barocodes,
+    barcode_bounds, and full_barcode
+    """
+
     def __get_subsection(h1, h2, pos1, pos2):
         h1_new = h1[pos1 : pos2 + 1]
         h2_new = h2[::-1][pos1 : pos2 + 1][::-1]
@@ -221,14 +245,14 @@ def find_barcodes(df, helices):
     df["barcode_bounds"] = [[] for _ in range(len(df))]
     df["full_barcode"] = ""
     for i, row in df.iterrows():
-        s = rl.SecStruct(row["structure"], row["sequence"].replace("U", "T"))
-        row_helices = list(s.helix())
+        s = SecStruct(row["sequence"].replace("U", "T"), row["structure"])
+        row_helices = list(s.get_helices())
         all_barcodes = []
         all_bounds = []
         for j, h in enumerate(helices):
             row_h = row_helices[h[0]]
-            seqs = row_h.sequence().split("&")
-            strands = row_h.strands()
+            seqs = row_h.sequence.split("&")
+            strands = row_h.strands
             b_seq = __get_subsection(seqs[0], seqs[1], h[1], h[2])
             b_strands = __get_subsection(strands[0], strands[1], h[1], h[2])
             b_bounds = [
@@ -238,11 +262,9 @@ def find_barcodes(df, helices):
             all_barcodes.append(b_seq)
             all_bounds.append(b_bounds)
         full_barcode = "_".join(np.concatenate(all_barcodes).flat)
-        df.at[i, ["barcodes", "barcode_bounds", "full_barcode"]] = [
-            all_barcodes,
-            all_bounds,
-            full_barcode,
-        ]
+        df.at[i, "barcodes"] = all_barcodes
+        df.at[i, "barcode_bounds"] = all_bounds
+        df.at[i, "full_barcode"] = full_barcode
     return df
 
 
