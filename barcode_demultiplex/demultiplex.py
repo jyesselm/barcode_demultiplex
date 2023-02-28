@@ -6,12 +6,16 @@ import numpy as np
 import shutil
 import pickle
 
-from seq_tools.sequence import get_reverse_complement
 from rna_secstruct import SecStruct
-from barcode_demultiplex.external_cmd import does_program_exist
+from barcode_demultiplex.external_cmd import (
+    does_program_exist,
+    SeqkitGrepOpts,
+    run_seqkit_grep_fwd,
+    run_seqkit_grep_rev,
+    run_seqkit_common,
+)
 from barcode_demultiplex.logger import get_logger
 
-# from dreem.run import get_default_run_args
 
 log = get_logger("DEMULTIPLEX")
 
@@ -40,155 +44,38 @@ class Demultiplexer:
         setup_directories(df_barcode, outdir)
 
     def run(self, fastq1, fastq2):
-        pass
+        bc = -1
+        for i, row in self.df_barcode.iterrows():
+            bc += 1
+            bc_dir = f"{self.outdir}/bc-{bc:04d}/"
+            barcode_seqs = row["barcodes"]
+            barcode_bounds = row["barcode_bounds"]
+            fwd_seqs = [seqs[0] for seqs in barcode_seqs]
+            fwd_bounds = [bounds[0] for bounds in barcode_bounds]
+            rev_seqs = [seqs[1] for seqs in barcode_seqs]
+            rev_bounds = [bounds[1] for bounds in barcode_bounds]
+            opts = SeqkitGrepOpts(
+                mut_num=0,
+                read_len=151,
+                seq_len=len(row["sequence"]),
+                buffer=5,
+            )
+            run_seqkit_grep_fwd(fwd_seqs, fwd_bounds,
+                                fastq1, "fwd.fastq.gz", opts)
+            run_seqkit_grep_rev(rev_seqs, rev_bounds,
+                                fastq2, "rev.fastq.gz", opts)
+            run_seqkit_common(
+                "fwd.fastq.gz", "rev.fastq.gz", f"{bc_dir}/test_mate1.fastq.gz"
+            )
+            run_seqkit_common(
+                "rev.fastq.gz",
+                f"{bc_dir}/test_mate1.fastq.gz",
+                f"{bc_dir}/test_mate2.fastq.gz",
+            )
+            os.remove("fwd.fastq.gz")
+            os.remove("rev.fastq.gz")
 
-
-class SeqkitdemultiplexerOld:
-    def __init__(self):
-        self.check_fwd = True
-        self.check_rev = True
-        self.r1_length = -1
-        self.r2_length = -1
-        self.r1_lines = []
-        self.r2_lines = []
-        self.all_ids = []
-        self.max = 9999
-        self.reads_used = 0
-
-    def run(self, df, fastq1, fastq2):
-        self.r1_length = get_read_length(fastq1)
-        f = open(fastq1)
-        self.r1_lines = f.readlines()
-        f.close()
-        if self.check_rev:
-            self.r2_length = get_read_length(fastq2)
-            f = open(fastq2)
-            self.r2_lines = f.readlines()
-            f.close()
-        log.info(f"total number of reads: {len(self.r1_lines) / 4}")
-        count = 0
-        for i, row in df.iterrows():
-            if count >= self.max:
-                log.info(f"max number of barcodes processed: {self.max}")
-                break
-            if self.check_fwd:
-                self.__run_fwd_demultiplex(row, fastq1)
-            if self.check_rev:
-                self.__run_rev_demultiplex(row, fastq2)
-            self.__filter_reads(row["path"])
-            count += 1
-        log.info(f"total reads found: {self.reads_used}")
-
-    def __run_fwd_demultiplex(self, row, fastq1):
-        cmds = []
-        count = 0
-        for seqs, bounds in zip(row["barcodes"], row["barcode_bounds"]):
-            for seq, bound in zip(seqs, bounds):
-                b1, b2 = bound
-                if b2 + 10 >= self.r1_length:
-                    continue
-                count += 1
-                if count == 1:
-                    cmds.append(
-                        f'seqkit grep -s -p "{seq}" -m 1 -P -R {b1 - 10}:{b2 + 10} '
-                        f"{fastq1} "
-                    )
-                else:
-                    cmds.append(
-                        f'seqkit grep -s -p "{seq}" -m 1 -P -R {b1 - 10}:{b2 + 10} '
-                    )
-        cmd = "| ".join(cmds) + f"> {row['path']}/test_fwd.fastq"
-        subprocess.call(cmd, shell=True)
-
-    def __run_rev_demultiplex(self, row, fastq2):
-        cmds = []
-        count = 0
-        for seqs, bounds in zip(row["barcodes"], row["barcode_bounds"]):
-            for seq, bound in zip(seqs, bounds):
-                b1, b2 = bound
-                b3 = row["len"] - b1
-                b4 = row["len"] - b2
-                if b3 + 10 >= self.r2_length:
-                    continue
-                count += 1
-                rev_seq = get_reverse_complement(seq)
-                if count == 1:
-                    cmds.append(
-                        f'seqkit grep -s -p "{rev_seq}" -m 1 -P -R {b4 - 5}:{b3 + 5} '
-                        f"{fastq2}"
-                    )
-                else:
-                    cmds.append(
-                        f'seqkit grep -s -p "{rev_seq}" -m 1 -P -R {b4 - 5}:{b3 + 5} '
-                    )
-
-        cmd = "| ".join(cmds) + f"> {row['path']}/test_rev.fastq"
-        subprocess.call(cmd, shell=True)
-
-    @staticmethod
-    def __get_read_ids(fpath):
-        f = open(fpath)
-        lines = f.readlines()[::4]
-        f.close()
-        ids = []
-        for line in lines:
-            spl = line.split()
-            ids.append(spl[0])
-        return set(ids)
-
-    def __filter_reads(self, path):
-        log = get_logger("")
-        ids = set()
-        if self.check_fwd and self.check_rev:
-            fwd_ids = self.__get_read_ids(f"{path}/test_fwd.fastq")
-            rev_ids = self.__get_read_ids(f"{path}/test_rev.fastq")
-            ids = fwd_ids.intersection(rev_ids)
-        elif self.check_fwd:
-            ids = self.__get_read_ids(f"{path}/test_fwd.fastq")
-        elif self.check_rev:
-            ids = self.__get_read_ids(f"{path}/test_rev.fastq")
-        self.reads_used += len(ids)
-        for read_id in ids:
-            if id not in self.all_ids:
-                self.all_ids.append(read_id)
-        log.info(f"{path}: {len(ids)}")
-        f = open(f"{path}/test_mate1.fastq", "w")
-        for i in range(0, len(self.r1_lines), 4):
-            spl = self.r1_lines[i].split()
-            if spl[0] not in ids:
-                continue
-            f.writelines(self.r1_lines[i : i + 4])
-        f.close()
-        if len(self.r2_lines) == 0:
-            return
-        f = open(f"{path}/test_mate2.fastq", "w")
-        for i in range(0, len(self.r2_lines), 4):
-            spl = self.r2_lines[i].split()
-            if spl[0] not in ids:
-                continue
-            f.writelines(self.r2_lines[i : i + 4])
-        f.close()
-
-    def __output_unused_reads(self, fastq1):
-        pos_ids = self.__get_read_ids(fastq1)
-        ids = []
-        for read_id in pos_ids:
-            if read_id not in self.all_ids:
-                ids.append(read_id)
-        f = open(f"test_mate1.fastq", "w")
-        for i in range(0, len(self.r1_lines), 4):
-            spl = self.r1_lines[i].split()
-            if spl[0] not in ids:
-                continue
-            f.writelines(self.r1_lines[i : i + 4])
-        f.close()
-        f = open(f"test_mate2.fastq", "w")
-        for i in range(0, len(self.r2_lines), 4):
-            spl = self.r2_lines[i].split()
-            if spl[0] not in ids:
-                continue
-            f.writelines(self.r2_lines[i : i + 4])
-        f.close()
+            # TODO run rna-map here
 
 
 def setup_directories(df, dirname="data"):
@@ -221,8 +108,7 @@ def setup_directories(df, dirname="data"):
     return pd.DataFrame(
         data,
         columns="name,path,num,barcodes,barcode_bounds,full_barcode,len".split(
-            ","
-        ),
+            ","),
     )
 
 
@@ -237,8 +123,8 @@ def find_helix_barcodes(df, helices):
     """
 
     def __get_subsection(h1, h2, pos1, pos2):
-        h1_new = h1[pos1 : pos2 + 1]
-        h2_new = h2[::-1][pos1 : pos2 + 1][::-1]
+        h1_new = h1[pos1: pos2 + 1]
+        h2_new = h2[::-1][pos1: pos2 + 1][::-1]
         return [h1_new, h2_new]
 
     df["barcodes"] = [[] for _ in range(len(df))]
@@ -272,7 +158,6 @@ def run_dreem_prog(df, max_barcodes, include_all_dreem_outputs):
     # need another file setup for keeping all the output files
     if include_all_dreem_outputs:
         return run_dreem_prog_multi(df, max_barcodes)
-    log = get_logger("RUN_DREEM")
     count = 0
     all_mhs = {}
     for i, row in df.iterrows():
@@ -302,11 +187,11 @@ def run_dreem_prog(df, max_barcodes, include_all_dreem_outputs):
         shutil.rmtree("output")
         count += 1
     os.makedirs("output/BitVector_Files/", exist_ok=True)
-    pickle.dump(all_mhs, open("output/BitVector_Files/mutation_histos.p", "wb"))
+    pickle.dump(all_mhs, open(
+        "output/BitVector_Files/mutation_histos.p", "wb"))
 
 
 def run_dreem_prog_multi(df, max_barcodes):
-    log = get_logger("RUN_DREEM")
     count = 0
     for i, row in df.iterrows():
         if count == max_barcodes:
