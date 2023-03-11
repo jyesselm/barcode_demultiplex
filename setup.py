@@ -7,10 +7,6 @@ def is_tool(name):
     return which(name) is not None
 
 
-if not is_tool("seqkit"):
-    print("seqkit must be installed for this package to work!")
-    exit()
-
 with open("requirements.txt") as f:
     requirements = f.read().splitlines()
 

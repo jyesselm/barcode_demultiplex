@@ -82,12 +82,12 @@ def setup_directories(df, dirname="data"):
     os.makedirs(dirname, exist_ok=True)
     bc = 0
     data = []
-    for i, g in df.groupby("full_barcode"):
+    for _, g in df.groupby("full_barcode"):
         bc_dir = f"{dirname}/bc-{bc:04d}"
         os.makedirs(bc_dir, exist_ok=True)
         g.to_json(f"{bc_dir}/constructs.json", orient="records")
         f = open(f"{bc_dir}/test.fasta", "w")
-        for j, row in g.iterrows():
+        for _, row in g.iterrows():
             f.write(f">{row['name']}\n")
             f.write(row["sequence"].replace("U", "T") + "\n")
         f.close()
