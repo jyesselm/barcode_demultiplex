@@ -83,6 +83,7 @@ class Seqkitdemultiplexer(object):
                         f'seqkit grep -s -p "{seq}" -m 1 -P -R {b1 - 10}:{b2 + 10} '
                     )
         cmd = "| ".join(cmds) + f"> {row['path']}/test_fwd.fastq"
+        print(cmd)
         subprocess.call(cmd, shell=True)
 
     def __run_rev_demultiplex(self, row, fastq2):
@@ -108,6 +109,7 @@ class Seqkitdemultiplexer(object):
                     )
 
         cmd = "| ".join(cmds) + f"> {row['path']}/test_rev.fastq"
+        print(cmd)
         subprocess.call(cmd, shell=True)
 
     @staticmethod
