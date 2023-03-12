@@ -21,6 +21,9 @@ class SeqkitGrepOpts:
     mut_num: int
     read_len: int
     seq_len: int
+    max_nuc: int = 999
+    min_nuc: int = 0
+    checks: int = 999
     buffer: int = 5
 
 
@@ -69,8 +72,7 @@ def run_seqkit_grep_fwd(
         count += 1
         if count == 1:
             cmds.append(
-                f'seqkit grep -s -p "{seq}" -m 1 -P -R {b1}:{b2} '
-                f"{in_fastq_file} "
+                f'seqkit grep -s -p "{seq}" -m 1 -P -R {b1}:{b2} ' f"{in_fastq_file} "
             )
         else:
             cmds.append(f'seqkit grep -s -p "{seq}" -m 1 -P -R {b1}:{b2} ')
@@ -104,8 +106,7 @@ def run_seqkit_grep_rev(
         count += 1
         if count == 1:
             cmds.append(
-                f'seqkit grep -s -p "{seq}" -m 1 -P -R {b4}:{b3} '
-                f"{in_fastq_file} "
+                f'seqkit grep -s -p "{seq}" -m 1 -P -R {b4}:{b3} ' f"{in_fastq_file} "
             )
         else:
             cmds.append(f'seqkit grep -s -p "{seq}" -m 1 -P -R {b4}:{b3} ')
@@ -124,7 +125,5 @@ def run_seqkit_common(in_fastq_file_1, in_fastq_file_2, out_fastq_file):
     contained between the two files
     :return: the stdout/stderr of runs
     """
-    cmd = (
-        f"seqkit common {in_fastq_file_1} {in_fastq_file_2} -o {out_fastq_file}"
-    )
+    cmd = f"seqkit common {in_fastq_file_1} {in_fastq_file_2} -o {out_fastq_file}"
     run_command(cmd)

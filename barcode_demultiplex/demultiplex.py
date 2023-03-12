@@ -1,5 +1,4 @@
 import os
-import click
 import pandas as pd
 from pathlib import Path
 import numpy as np
@@ -7,6 +6,7 @@ import yaml
 import shutil
 import pickle
 import gzip
+import json
 
 from rna_secstruct import SecStruct
 from barcode_demultiplex.external_cmd import (
@@ -27,10 +27,8 @@ log = get_logger("DEMULTIPLEX")
 LIB_DIR = Path(os.path.dirname(os.path.realpath(__file__)))
 
 
-# TODO add param files
-# TODO param file should define how far to look for barcode in each direction
-# Define how many to check and if only want to check fwd or rev
 # TODO test what happens when there is an empty fastq file for rna_map
+# TODO if is not summary true need to recombine the bitvector files
 
 
 def get_read_length(fastq_file: Path):
@@ -60,12 +58,83 @@ class Demultiplexer:
             log.error("seqkit not found")
             raise ValueError("seqkit not found")
         setup_directories(df_barcode, outdir)
-
         self.df_barcode = df_barcode
         self.outdir = outdir
+        self.params = params
         self.fwd_read_len = 100
         self.rev_read_len = 100
         setup_directories(df_barcode, outdir)
+
+    def __run_seqkit(self, fastq1, fastq2, row, bc):
+        bc_dir = f"{self.outdir}/bc-{bc:04d}/"
+        barcode_seqs = row["barcodes"]
+        barcode_bounds = row["barcode_bounds"]
+        fwd_seqs = [seqs[0] for seqs in barcode_seqs]
+        fwd_bounds = [bounds[0] for bounds in barcode_bounds]
+        rev_seqs = [seqs[1] for seqs in barcode_seqs]
+        rev_bounds = [bounds[1] for bounds in barcode_bounds]
+        fwd_args = self.params["fwd"].copy()
+        del fwd_args["check"]
+        rev_args = self.params["rev"].copy()
+        del rev_args["check"]
+        fwd_opts = SeqkitGrepOpts(
+            read_len=self.fwd_read_len, seq_len=len(row["sequence"]), **fwd_args
+        )
+        rev_opts = SeqkitGrepOpts(
+            read_len=self.rev_read_len, seq_len=len(row["sequence"]), **rev_args
+        )
+        if self.params["fwd"]["check"]:
+            run_seqkit_grep_fwd(fwd_seqs, fwd_bounds, fastq1, "fwd.fastq.gz", fwd_opts)
+        else:
+            shutil.copy(fastq1, "fwd.fastq.gz")
+        if self.params["rev"]["check"]:
+            run_seqkit_grep_rev(rev_seqs, rev_bounds, fastq2, "rev.fastq.gz", rev_opts)
+        else:
+            shutil.copy(fastq2, "rev.fastq.gz")
+        run_seqkit_common(
+            "fwd.fastq.gz", "rev.fastq.gz", f"{bc_dir}/test_mate1.fastq.gz"
+        )
+        run_seqkit_common(
+            "rev.fastq.gz",
+            f"{bc_dir}/test_mate1.fastq.gz",
+            f"{bc_dir}/test_mate2.fastq.gz",
+        )
+        os.remove("fwd.fastq.gz")
+        os.remove("rev.fastq.gz")
+
+    def __run_rna_map(self, bc_dir, all_mhs, rna_map_params):
+        fastq1_path = f"{bc_dir}/test_mate1.fastq.gz"
+        fastq2_path = f"{bc_dir}/test_mate2.fastq.gz"
+        fa_path = f"{bc_dir}/test.fasta"
+        csv_path = f"{bc_dir}/test.csv"
+        rna_map_params = rna_map_params.copy()
+        # map rna-map directories to the barcode directory
+        rna_map_params["dirs"]["output"] = f"{bc_dir}/output"
+        rna_map_params["dirs"]["input"] = f"{bc_dir}/input"
+        rna_map_params["dirs"]["log"] = f"{bc_dir}/log"
+        try:
+            run_rna_map(fa_path, fastq1_path, fastq2_path, csv_path, rna_map_params)
+        except:
+            # shutil.rmtree("input")
+            # shutil.rmtree("log")
+            # shutil.rmtree("output")
+            return
+        # shutil.rmtree("input")
+        # shutil.rmtree("log")
+        json_file = f"output/BitVector_Files/mutation_histos.json"
+        if not os.path.exists(json_file):
+            # shutil.rmtree("output")
+            return
+        with open(json_file) as f:
+            mhs = json.load(f)
+        for name, mh in mhs.items():
+            if name in all_mhs:
+                raise ValueError(
+                    f"something went very wrong should not be duplicate entries"
+                    f" in MutationalHistograms! {name} is duplicated"
+                )
+            all_mhs[name] = mh
+        # shutil.rmtree("output")
 
     def run(self, fastq1: Path, fastq2: Path):
         # check to make sure files actually exist
@@ -75,48 +144,26 @@ class Demultiplexer:
         if not fastq2.parts and not fastq2.is_file():
             log.error(f"{fastq2} not found")
             raise ValueError(f"{fastq2} not found")
-        rna_map_params = yaml.safe_load(open(LIB_DIR / "resources/rna_map.yml"))
+        param_path = LIB_DIR / "resources/rna-map.yml"
+        log.info(f"using rna-map params from {param_path}")
+        rna_map_params = yaml.safe_load(open(param_path))
         self.fwd_read_len = get_read_length(fastq1)
         self.rev_read_len = get_read_length(fastq2)
+        if self.params["rna-map"]["run"]:
+            log.info("running rna-map on all barcodes")
+            log.info("data will be found in output/BitVector_Files/")
+            os.makedirs("output/BitVector_Files/", exist_ok=True)
         bc = -1
-        for i, row in self.df_barcode.iterrows():
+        all_mhs = {}
+        for _, row in self.df_barcode.iterrows():
             bc += 1
             bc_dir = f"{self.outdir}/bc-{bc:04d}/"
-            barcode_seqs = row["barcodes"]
-            barcode_bounds = row["barcode_bounds"]
-            fwd_seqs = [seqs[0] for seqs in barcode_seqs]
-            fwd_bounds = [bounds[0] for bounds in barcode_bounds]
-            rev_seqs = [seqs[1] for seqs in barcode_seqs]
-            rev_bounds = [bounds[1] for bounds in barcode_bounds]
-            fwd_opts = SeqkitGrepOpts(
-                mut_num=0,
-                read_len=self.fwd_read_len,
-                seq_len=len(row["sequence"]),
-                buffer=5,
-            )
-            rev_opts = SeqkitGrepOpts(
-                mut_num=0,
-                read_len=self.rev_read_len,
-                seq_len=len(row["sequence"]),
-                buffer=5,
-            )
-            run_seqkit_grep_fwd(fwd_seqs, fwd_bounds, fastq1, "fwd.fastq.gz", fwd_opts)
-            run_seqkit_grep_rev(rev_seqs, rev_bounds, fastq2, "rev.fastq.gz", rev_opts)
-            run_seqkit_common(
-                "fwd.fastq.gz", "rev.fastq.gz", f"{bc_dir}/test_mate1.fastq.gz"
-            )
-            run_seqkit_common(
-                "rev.fastq.gz",
-                f"{bc_dir}/test_mate1.fastq.gz",
-                f"{bc_dir}/test_mate2.fastq.gz",
-            )
-            os.remove("fwd.fastq.gz")
-            os.remove("rev.fastq.gz")
-            fastq1_path = Path(f"{bc_dir}/test_mate1.fastq.gz")
-            fastq2_path = Path(f"{bc_dir}/test_mate2.fastq.gz")
-            fa_path = Path(f"{bc_dir}/test.fasta")
-            csv_path = Path(f"{bc_dir}/test.csv")
-            run_rna_map(fastq1_path, fastq2_path, fa_path, csv_path, rna_map_params)
+            log.info(bc_dir)
+            self.__run_seqkit(fastq1, fastq2, row, bc)
+            if self.params["rna-map"]["run"]:
+                self.__run_rna_map(bc_dir, all_mhs, rna_map_params)
+        if self.params["rna-map"]["run"]:
+            json.dump(all_mhs, open("output/BitVector_Files/mutation_histos.json", "w"))
 
 
 def setup_directories(df, dirname="data"):
@@ -192,60 +239,3 @@ def find_helix_barcodes(df, helices):
         df.at[i, "barcode_bounds"] = all_bounds
         df.at[i, "full_barcode"] = full_barcode
     return df
-
-
-def run_dreem_prog(df, max_barcodes, include_all_dreem_outputs):
-    # need another file setup for keeping all the output files
-    if include_all_dreem_outputs:
-        return run_dreem_prog_multi(df, max_barcodes)
-    count = 0
-    all_mhs = {}
-    for i, row in df.iterrows():
-        if count == max_barcodes:
-            break
-        args = get_default_run_args()
-        path = row["path"]
-        args["fasta"] = path + "/test.fasta"
-        args["fastq1"] = path + "/test_mate1.fastq"
-        args["fastq2"] = path + "/test_mate2.fastq"
-        args["dot_bracket"] = path + "/test.csv"
-        args["summary_output_only"] = True
-        dreem.run.run(args)
-        pickle_path = "output/BitVector_Files/mutation_histos.p"
-        mhs = pickle.load(open(pickle_path, "rb"))
-        for name, mh in mhs.items():
-            if name in all_mhs:
-                raise ValueError(
-                    f"something went very wrong should not be duplicate entries"
-                    f" in MutationalHistograms! {name} is duplicated"
-                )
-            all_mhs[name] = mh
-        log.info(f"currently {len(all_mhs)} mutational histograms!")
-        shutil.move(pickle_path, path)
-        shutil.rmtree("input")
-        shutil.rmtree("log")
-        shutil.rmtree("output")
-        count += 1
-    os.makedirs("output/BitVector_Files/", exist_ok=True)
-    pickle.dump(all_mhs, open("output/BitVector_Files/mutation_histos.p", "wb"))
-
-
-def run_dreem_prog_multi(df, max_barcodes):
-    count = 0
-    for i, row in df.iterrows():
-        if count == max_barcodes:
-            break
-        args = get_default_run_args()
-        path = os.path.abspath(row["path"])
-        args["fasta"] = path + "/test.fasta"
-        args["fastq1"] = path + "/test_mate1.fastq"
-        args["fastq2"] = path + "/test_mate2.fastq"
-        args["dot_bracket"] = path + "/test.csv"
-        os.makedirs(row["full_barcode"], exist_ok=True)
-        os.chdir(row["full_barcode"])
-        try:
-            dreem.run.run(args)
-        except:
-            pass
-        os.chdir("..")
-        count += 1

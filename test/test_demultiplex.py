@@ -7,6 +7,7 @@ from barcode_demultiplex.demultiplex import (
     get_read_length,
     Demultiplexer,
 )
+from barcode_demultiplex.logger import setup_applevel_logger
 
 TEST_DIR = Path(os.path.dirname(os.path.realpath(__file__)))
 
@@ -30,6 +31,9 @@ class TestResources:
                 "checks": 999,
                 "mut_num": 1,
                 "buffer": 5,
+            },
+            "rna-map": {
+                "run": False,
             },
         }
         return params
@@ -59,10 +63,12 @@ def test_get_read_length():
 
 
 def test_demultiplexer():
+    setup_applevel_logger()
     path = TEST_DIR / "resources/test_cases/C0098"
     R1_path = path / "R1.sub.fastq.gz"
     R2_path = path / "R2.sub.fastq.gz"
     params = TestResources.get_test_params()
+    params["rna-map"]["run"] = True
     df_barcodes = pd.read_json(path / "C0098_barcodes.json")
     dmulter = Demultiplexer()
     dmulter.setup(df_barcodes, "data", params)
