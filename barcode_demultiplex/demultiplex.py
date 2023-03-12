@@ -3,6 +3,7 @@ import click
 import pandas as pd
 from pathlib import Path
 import numpy as np
+import yaml
 import shutil
 import pickle
 import gzip
@@ -22,9 +23,14 @@ from rna_map.run import run as run_rna_map
 
 log = get_logger("DEMULTIPLEX")
 
+
+LIB_DIR = Path(os.path.dirname(os.path.realpath(__file__)))
+
+
 # TODO add param files
 # TODO param file should define how far to look for barcode in each direction
 # Define how many to check and if only want to check fwd or rev
+# TODO test what happens when there is an empty fastq file for rna_map
 
 
 def get_read_length(fastq_file: Path):
@@ -69,6 +75,7 @@ class Demultiplexer:
         if not fastq2.parts and not fastq2.is_file():
             log.error(f"{fastq2} not found")
             raise ValueError(f"{fastq2} not found")
+        rna_map_params = yaml.safe_load(open(LIB_DIR / "resources/rna_map.yml"))
         self.fwd_read_len = get_read_length(fastq1)
         self.rev_read_len = get_read_length(fastq2)
         bc = -1
@@ -105,8 +112,11 @@ class Demultiplexer:
             )
             os.remove("fwd.fastq.gz")
             os.remove("rev.fastq.gz")
-
-            # TODO run rna-map here
+            fastq1_path = Path(f"{bc_dir}/test_mate1.fastq.gz")
+            fastq2_path = Path(f"{bc_dir}/test_mate2.fastq.gz")
+            fa_path = Path(f"{bc_dir}/test.fasta")
+            csv_path = Path(f"{bc_dir}/test.csv")
+            run_rna_map(fastq1_path, fastq2_path, fa_path, csv_path, rna_map_params)
 
 
 def setup_directories(df, dirname="data"):

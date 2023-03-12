@@ -70,4 +70,4 @@ def test_demultiplexer():
     assert Path("data").is_dir()
     barcode_dirs = list(Path("data").iterdir())
     assert len(barcode_dirs) == 24
-    shutil.rmtree("data")
+    # shutil.rmtree("data")
