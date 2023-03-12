@@ -1,0 +1,17 @@
+fwd:
+  check: True
+  max_nuc: 100
+  min_nuc: 0
+  checks: 1
+  mut_num: 1
+  buffer: 5
+rev:
+  check: True
+  max_nuc: 100
+  min_nuc: 0
+  checks: 1
+  mut_num: 1
+  buffer: 5
+rna-map: 
+  param-file: ""
+  summary-only: True

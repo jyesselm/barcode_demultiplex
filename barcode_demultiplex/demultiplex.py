@@ -1,10 +1,11 @@
 import os
 import click
 import pandas as pd
-import subprocess
+from pathlib import Path
 import numpy as np
 import shutil
 import pickle
+import gzip
 
 from rna_secstruct import SecStruct
 from barcode_demultiplex.external_cmd import (
@@ -16,23 +17,38 @@ from barcode_demultiplex.external_cmd import (
 )
 from barcode_demultiplex.logger import get_logger
 
+from rna_map.run import run as run_rna_map
+
 
 log = get_logger("DEMULTIPLEX")
 
+# TODO add param files
+# TODO param file should define how far to look for barcode in each direction
+# Define how many to check and if only want to check fwd or rev
 
-def get_read_length(fastq):
-    f = open(fastq)
-    lines = f.readlines()
-    f.close()
-    min_len = 10000
-    for i in range(0, len(lines), 4):
-        if len(lines[i + 1]) < min_len:
-            min_len = len(lines[i + 1])
-    return min_len
+
+def get_read_length(fastq_file: Path):
+    is_gzipped = fastq_file.suffix == ".gz"
+    seq_len = -1
+    if not is_gzipped:
+        with open(fastq_file) as f:
+            for line_number, line in enumerate(f):
+                line = line.rstrip()
+                if line_number % 4 == 1:
+                    if seq_len > len(line):
+                        seq_len = len(line)
+    else:
+        with gzip.open(fastq_file, "rt") as f:
+            for line_number, line in enumerate(f):
+                line = line.rstrip()
+                if line_number % 4 == 1:
+                    if seq_len < len(line):
+                        seq_len = len(line)
+    return seq_len
 
 
 class Demultiplexer:
-    def setup(self, df_barcode, outdir):
+    def setup(self, df_barcode, outdir, params):
         # check if seqkit is installed
         if not does_program_exist("seqkit"):
             log.error("seqkit not found")
@@ -41,9 +57,20 @@ class Demultiplexer:
 
         self.df_barcode = df_barcode
         self.outdir = outdir
+        self.fwd_read_len = 100
+        self.rev_read_len = 100
         setup_directories(df_barcode, outdir)
 
-    def run(self, fastq1, fastq2):
+    def run(self, fastq1: Path, fastq2: Path):
+        # check to make sure files actually exist
+        if not fastq1.parts and not fastq1.is_file():
+            log.error(f"{fastq1} not found")
+            raise ValueError(f"{fastq1} not found")
+        if not fastq2.parts and not fastq2.is_file():
+            log.error(f"{fastq2} not found")
+            raise ValueError(f"{fastq2} not found")
+        self.fwd_read_len = get_read_length(fastq1)
+        self.rev_read_len = get_read_length(fastq2)
         bc = -1
         for i, row in self.df_barcode.iterrows():
             bc += 1
@@ -54,16 +81,20 @@ class Demultiplexer:
             fwd_bounds = [bounds[0] for bounds in barcode_bounds]
             rev_seqs = [seqs[1] for seqs in barcode_seqs]
             rev_bounds = [bounds[1] for bounds in barcode_bounds]
-            opts = SeqkitGrepOpts(
+            fwd_opts = SeqkitGrepOpts(
                 mut_num=0,
-                read_len=151,
+                read_len=self.fwd_read_len,
                 seq_len=len(row["sequence"]),
                 buffer=5,
             )
-            run_seqkit_grep_fwd(fwd_seqs, fwd_bounds,
-                                fastq1, "fwd.fastq.gz", opts)
-            run_seqkit_grep_rev(rev_seqs, rev_bounds,
-                                fastq2, "rev.fastq.gz", opts)
+            rev_opts = SeqkitGrepOpts(
+                mut_num=0,
+                read_len=self.rev_read_len,
+                seq_len=len(row["sequence"]),
+                buffer=5,
+            )
+            run_seqkit_grep_fwd(fwd_seqs, fwd_bounds, fastq1, "fwd.fastq.gz", fwd_opts)
+            run_seqkit_grep_rev(rev_seqs, rev_bounds, fastq2, "rev.fastq.gz", rev_opts)
             run_seqkit_common(
                 "fwd.fastq.gz", "rev.fastq.gz", f"{bc_dir}/test_mate1.fastq.gz"
             )
@@ -107,8 +138,7 @@ def setup_directories(df, dirname="data"):
         bc += 1
     return pd.DataFrame(
         data,
-        columns="name,path,num,barcodes,barcode_bounds,full_barcode,len".split(
-            ","),
+        columns="name,path,num,barcodes,barcode_bounds,full_barcode,len".split(","),
     )
 
 
@@ -123,8 +153,8 @@ def find_helix_barcodes(df, helices):
     """
 
     def __get_subsection(h1, h2, pos1, pos2):
-        h1_new = h1[pos1: pos2 + 1]
-        h2_new = h2[::-1][pos1: pos2 + 1][::-1]
+        h1_new = h1[pos1 : pos2 + 1]
+        h2_new = h2[::-1][pos1 : pos2 + 1][::-1]
         return [h1_new, h2_new]
 
     df["barcodes"] = [[] for _ in range(len(df))]
@@ -187,8 +217,7 @@ def run_dreem_prog(df, max_barcodes, include_all_dreem_outputs):
         shutil.rmtree("output")
         count += 1
     os.makedirs("output/BitVector_Files/", exist_ok=True)
-    pickle.dump(all_mhs, open(
-        "output/BitVector_Files/mutation_histos.p", "wb"))
+    pickle.dump(all_mhs, open("output/BitVector_Files/mutation_histos.p", "wb"))
 
 
 def run_dreem_prog_multi(df, max_barcodes):
