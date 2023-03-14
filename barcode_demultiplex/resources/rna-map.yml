@@ -21,12 +21,12 @@ bit_vector:
   skip: False
   qscore_cutoff: 25
   num_of_surbases: 10
-  map_score_cutoff: 25 # changed from 15
+  map_score_cutoff: 20 # changed from 15
   plot_sequence: True # changed
-  summary_output_only: True
+  summary_output_only: False
   stricter_constraints: # new cutoffs for bit vectors use at your own risk
       min_mut_distance: 5 # minimum distance between mutations
-      percent_length_cutoff: 0.50 # changed from 0.10
+      percent_length_cutoff: 0.40 # changed from 0.10
       mutation_count_cutoff: 4
 # dirs locations ##############################################################
 dirs:

@@ -34,11 +34,13 @@ LIB_DIR = Path(os.path.dirname(os.path.realpath(__file__)))
 def get_read_length(fastq_file: Path):
     is_gzipped = fastq_file.suffix == ".gz"
     seq_len = -1
+    count = 0
     if not is_gzipped:
         with open(fastq_file) as f:
             for line_number, line in enumerate(f):
                 line = line.rstrip()
                 if line_number % 4 == 1:
+                    count += 1
                     if seq_len > len(line):
                         seq_len = len(line)
     else:
@@ -46,8 +48,10 @@ def get_read_length(fastq_file: Path):
             for line_number, line in enumerate(f):
                 line = line.rstrip()
                 if line_number % 4 == 1:
+                    count += 1
                     if seq_len < len(line):
                         seq_len = len(line)
+    log.info(f"read length is {seq_len} for {fastq_file} (count={count})")
     return seq_len
 
 
@@ -115,18 +119,16 @@ class Demultiplexer:
         try:
             run_rna_map(fa_path, fastq1_path, fastq2_path, csv_path, rna_map_params)
         except:
-            # shutil.rmtree("input")
-            # shutil.rmtree("log")
-            # shutil.rmtree("output")
+            log.warning(f"rna-map failed for {bc_dir}")
             return
-        # shutil.rmtree("input")
-        # shutil.rmtree("log")
-        json_file = f"output/BitVector_Files/mutation_histos.json"
+        json_file = f"{bc_dir}/output/BitVector_Files/mutation_histos.json"
         if not os.path.exists(json_file):
-            # shutil.rmtree("output")
+            log.warning(f"rna-map did not produce a json file for {bc_dir}")
             return
         with open(json_file) as f:
             mhs = json.load(f)
+            num_reads = sum([mh["num_aligned"] for mh in mhs.values()])
+            log.info(f"{bc_dir} has {num_reads} aligned reads")
         for name, mh in mhs.items():
             if name in all_mhs:
                 raise ValueError(
@@ -134,7 +136,6 @@ class Demultiplexer:
                     f" in MutationalHistograms! {name} is duplicated"
                 )
             all_mhs[name] = mh
-        # shutil.rmtree("output")
 
     def run(self, fastq1: Path, fastq2: Path):
         # check to make sure files actually exist
@@ -155,6 +156,7 @@ class Demultiplexer:
             os.makedirs("output/BitVector_Files/", exist_ok=True)
         bc = -1
         all_mhs = {}
+        count = 0
         for _, row in self.df_barcode.iterrows():
             bc += 1
             bc_dir = f"{self.outdir}/bc-{bc:04d}/"
@@ -162,6 +164,9 @@ class Demultiplexer:
             self.__run_seqkit(fastq1, fastq2, row, bc)
             if self.params["rna-map"]["run"]:
                 self.__run_rna_map(bc_dir, all_mhs, rna_map_params)
+            count += 1
+            if count > 10:
+                break
         if self.params["rna-map"]["run"]:
             json.dump(all_mhs, open("output/BitVector_Files/mutation_histos.json", "w"))
 
@@ -239,3 +244,13 @@ def find_helix_barcodes(df, helices):
         df.at[i, "barcode_bounds"] = all_bounds
         df.at[i, "full_barcode"] = full_barcode
     return df
+
+
+def demultiplex(df, fastq1, fastq2, helices, outdir="data", params=None):
+    if params is None:
+        params = yaml.safe_load(open(LIB_DIR / "resources/default.yml"))
+    # TODO need to validate params
+    df_barcodes = find_helix_barcodes(df, helices)
+    dmulter = Demultiplexer()
+    dmulter.setup(df_barcodes, outdir, params)
+    dmulter.run(fastq1, fastq2)
