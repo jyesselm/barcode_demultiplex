@@ -159,13 +159,13 @@ class Demultiplexer:
             bc_dir = row["path"]
             log.info(bc_dir)
             self.__run_seqkit(fastq1, fastq2, row, bc_dir)
-            if self.params["rna-map"]["run"]:
-                self.__run_rna_map(bc_dir, all_mhs, rna_map_params)
+            # if self.params["rna-map"]["run"]:
+            #    self.__run_rna_map(bc_dir, all_mhs, rna_map_params)
             count += 1
             if count > 100:
                 break
-        if self.params["rna-map"]["run"]:
-            json.dump(all_mhs, open("output/BitVector_Files/mutation_histos.json", "w"))
+        # if self.params["rna-map"]["run"]:
+        #    json.dump(all_mhs, open("output/BitVector_Files/mutation_histos.json", "w"))
 
 
 def setup_directories(df, dirname="data"):

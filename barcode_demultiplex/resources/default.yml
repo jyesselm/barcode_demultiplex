@@ -19,3 +19,4 @@ rna-map:
 general:
   max: 99999
   debug: False
+  generate_sh: True

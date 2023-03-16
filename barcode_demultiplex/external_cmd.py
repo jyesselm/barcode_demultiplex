@@ -152,6 +152,11 @@ def run_seqkit_grep_rev(
     return run_command(cmd)
 
 
+def get_seqkit_common_cmd(in_fastq_file_1, in_fastq_file_2, out_fastq_file) -> str:
+    cmd = f"seqkit common {in_fastq_file_1} {in_fastq_file_2} -o {out_fastq_file}"
+    return cmd
+
+
 def run_seqkit_common(in_fastq_file_1, in_fastq_file_2, out_fastq_file):
     """
     Finds reads in common betwen in_fastq_file_1 and in_fastq_file_2 and
