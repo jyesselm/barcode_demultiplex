@@ -16,3 +16,6 @@ rna-map:
   run: True
   param-file: ""
   summary-only: True
+general:
+  max: 99999
+  debug: False

@@ -61,7 +61,7 @@ class Demultiplexer:
         if not does_program_exist("seqkit"):
             log.error("seqkit not found")
             raise ValueError("seqkit not found")
-        setup_directories(df_barcode, outdir)
+        self.df_dirs = setup_directories(df_barcode, outdir)
         self.df_barcode = df_barcode
         self.outdir = outdir
         self.params = params
@@ -69,8 +69,7 @@ class Demultiplexer:
         self.rev_read_len = 100
         setup_directories(df_barcode, outdir)
 
-    def __run_seqkit(self, fastq1, fastq2, row, bc):
-        bc_dir = f"{self.outdir}/bc-{bc:04d}/"
+    def __run_seqkit(self, fastq1, fastq2, row, bc_dir):
         barcode_seqs = row["barcodes"]
         barcode_bounds = row["barcode_bounds"]
         fwd_seqs = [seqs[0] for seqs in barcode_seqs]
@@ -154,18 +153,16 @@ class Demultiplexer:
             log.info("running rna-map on all barcodes")
             log.info("data will be found in output/BitVector_Files/")
             os.makedirs("output/BitVector_Files/", exist_ok=True)
-        bc = -1
         all_mhs = {}
         count = 0
-        for _, row in self.df_barcode.iterrows():
-            bc += 1
-            bc_dir = f"{self.outdir}/bc-{bc:04d}/"
+        for _, row in self.df_dirs.iterrows():
+            bc_dir = row["path"]
             log.info(bc_dir)
-            self.__run_seqkit(fastq1, fastq2, row, bc)
+            self.__run_seqkit(fastq1, fastq2, row, bc_dir)
             if self.params["rna-map"]["run"]:
                 self.__run_rna_map(bc_dir, all_mhs, rna_map_params)
             count += 1
-            if count > 10:
+            if count > 100:
                 break
         if self.params["rna-map"]["run"]:
             json.dump(all_mhs, open("output/BitVector_Files/mutation_histos.json", "w"))
@@ -189,6 +186,8 @@ def setup_directories(df, dirname="data"):
         row = g.iloc[0]
         data_row = [
             row["name"],
+            row["sequence"],
+            row["structure"],
             bc_dir,
             len(g),
             row["barcodes"],
@@ -200,7 +199,9 @@ def setup_directories(df, dirname="data"):
         bc += 1
     return pd.DataFrame(
         data,
-        columns="name,path,num,barcodes,barcode_bounds,full_barcode,len".split(","),
+        columns="name,sequence,structure,path,num,barcodes,barcode_bounds,full_barcode,len".split(
+            ","
+        ),
     )
 
 
@@ -251,6 +252,7 @@ def demultiplex(df, fastq1, fastq2, helices, outdir="data", params=None):
         params = yaml.safe_load(open(LIB_DIR / "resources/default.yml"))
     # TODO need to validate params
     df_barcodes = find_helix_barcodes(df, helices)
+    df_barcodes.to_json(f"barcodes.json", orient="records")
     dmulter = Demultiplexer()
     dmulter.setup(df_barcodes, outdir, params)
     dmulter.run(fastq1, fastq2)

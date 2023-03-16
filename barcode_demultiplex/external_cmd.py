@@ -53,6 +53,41 @@ def run_command(cmd: str) -> ProgOutput:
     return ProgOutput(output, error_msg)
 
 
+def get_seqkit_grep_fwd_cmd(
+    barcode_seqs,
+    barcode_bounds,
+    in_fastq_file,
+    out_fastq_file,
+    opts: SeqkitGrepOpts,
+) -> str:
+    count = 0
+    cmds = []
+    max_len = opts.seq_len
+    muts = opts.mut_num
+    if max_len > opts.read_len:
+        max_len = opts.read_len
+    for seq, bound in zip(barcode_seqs, barcode_bounds):
+        b1, b2 = bound[0] - opts.buffer, bound[1] + opts.buffer
+        if b2 >= max_len:
+            continue
+        if b2 >= opts.max_nuc:
+            continue
+        if b1 <= opts.min_nuc:
+            continue
+        count += 1
+        if count == 1:
+            cmds.append(
+                f'seqkit grep -s -p "{seq}" -m {muts} -P -R {b1}:{b2} '
+                f"{in_fastq_file} "
+            )
+        else:
+            cmds.append(f'seqkit grep -s -p "{seq}" -m {muts} -P -R {b1}:{b2} ')
+        if count == opts.checks:
+            break
+    cmd = "| ".join(cmds) + f" -o {out_fastq_file}"
+    return cmd
+
+
 def run_seqkit_grep_fwd(
     barcode_seqs,
     barcode_bounds,
@@ -60,38 +95,25 @@ def run_seqkit_grep_fwd(
     out_fastq_file,
     opts: SeqkitGrepOpts,
 ) -> ProgOutput:
-    count = 0
-    cmds = []
-    max_len = opts.seq_len
-    if max_len > opts.read_len:
-        max_len = opts.read_len
-    for seq, bound in zip(barcode_seqs, barcode_bounds):
-        b1, b2 = bound[0] - opts.buffer, bound[1] + opts.buffer
-        if b2 >= max_len:
-            continue
-        count += 1
-        if count == 1:
-            cmds.append(
-                f'seqkit grep -s -p "{seq}" -m 1 -P -R {b1}:{b2} ' f"{in_fastq_file} "
-            )
-        else:
-            cmds.append(f'seqkit grep -s -p "{seq}" -m 1 -P -R {b1}:{b2} ')
-    cmd = "| ".join(cmds) + f" -o {out_fastq_file}"
+    cmd = get_seqkit_grep_fwd_cmd(
+        barcode_seqs, barcode_bounds, in_fastq_file, out_fastq_file, opts
+    )
     return run_command(cmd)
 
 
-def run_seqkit_grep_rev(
+def get_seqkit_grep_rev_cmd(
     barcode_seqs,
     barcode_bounds,
     in_fastq_file,
     out_fastq_file,
     opts: SeqkitGrepOpts,
-) -> ProgOutput:
+) -> str:
     # TODO hardcoded for now but you lost 12 nt from the RTB barcodes on R1
     rtb_length = 12
     count = 0
     cmds = []
     max_len = opts.seq_len
+    muts = opts.mut_num
     if max_len > opts.read_len - rtb_length:
         max_len = opts.read_len - rtb_length
     for seq, bound in zip(barcode_seqs, barcode_bounds):
@@ -106,11 +128,27 @@ def run_seqkit_grep_rev(
         count += 1
         if count == 1:
             cmds.append(
-                f'seqkit grep -s -p "{seq}" -m 1 -P -R {b4}:{b3} ' f"{in_fastq_file} "
+                f'seqkit grep -s -p "{seq}" -m {muts} -P -R {b4}:{b3} '
+                f"{in_fastq_file} "
             )
         else:
-            cmds.append(f'seqkit grep -s -p "{seq}" -m 1 -P -R {b4}:{b3} ')
+            cmds.append(f'seqkit grep -s -p "{seq}" -m {muts} -P -R {b4}:{b3} ')
+        if count == opts.checks:
+            break
     cmd = "| ".join(cmds) + f" -o {out_fastq_file}"
+    return cmd
+
+
+def run_seqkit_grep_rev(
+    barcode_seqs,
+    barcode_bounds,
+    in_fastq_file,
+    out_fastq_file,
+    opts: SeqkitGrepOpts,
+) -> ProgOutput:
+    cmd = get_seqkit_grep_rev_cmd(
+        barcode_seqs, barcode_bounds, in_fastq_file, out_fastq_file, opts
+    )
     return run_command(cmd)
 
 
