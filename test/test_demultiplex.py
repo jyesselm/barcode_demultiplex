@@ -35,6 +35,11 @@ class TestResources:
             "rna-map": {
                 "run": False,
             },
+            "general": {
+                "output_dir": "data",
+                "directory_style": "individual",
+                "max": 2,
+            },
         }
         return params
 
@@ -63,17 +68,27 @@ def test_get_read_length():
 
 
 def test_demultiplexer():
-    setup_applevel_logger()
     path = TEST_DIR / "resources/test_cases/C0098"
     R1_path = path / "R1.sub.fastq.gz"
     R2_path = path / "R2.sub.fastq.gz"
     params = TestResources.get_test_params()
-    params["rna-map"]["run"] = True
     df_barcodes = pd.read_json(path / "C0098_barcodes.json")
     dmulter = Demultiplexer()
     dmulter.setup(df_barcodes, "data", params)
     dmulter.run(R2_path, R1_path)
     assert Path("data").is_dir()
-    barcode_dirs = list(Path("data").iterdir())
-    assert len(barcode_dirs) == 24
-    # shutil.rmtree("data")
+    assert Path("data/bc-0000/test_mate1.fastq.gz").is_file()
+    shutil.rmtree("data")
+
+
+def test_demultiplexer_single():
+    path = TEST_DIR / "resources/test_cases/C0098"
+    R1_path = path / "R1.sub.fastq.gz"
+    R2_path = path / "R2.sub.fastq.gz"
+    params = TestResources.get_test_params()
+    params["general"]["directory_style"] = "single"
+    df_barcodes = pd.read_json(path / "C0098_barcodes.json")
+    dmulter = Demultiplexer()
+    dmulter.setup(df_barcodes, "data", params)
+    dmulter.run(R2_path, R1_path)
+    assert Path("data").is_dir()

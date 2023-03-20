@@ -61,13 +61,14 @@ class Demultiplexer:
         if not does_program_exist("seqkit"):
             log.error("seqkit not found")
             raise ValueError("seqkit not found")
-        self.df_dirs = setup_directories(df_barcode, outdir)
+        self.df_dirs = setup_directories(
+            df_barcode, params["general"]["directory_style"], outdir
+        )
         self.df_barcode = df_barcode
         self.outdir = outdir
         self.params = params
         self.fwd_read_len = 100
         self.rev_read_len = 100
-        setup_directories(df_barcode, outdir)
 
     def __run_seqkit(self, fastq1, fastq2, row, bc_dir):
         barcode_seqs = row["barcodes"]
@@ -94,14 +95,26 @@ class Demultiplexer:
             run_seqkit_grep_rev(rev_seqs, rev_bounds, fastq2, "rev.fastq.gz", rev_opts)
         else:
             shutil.copy(fastq2, "rev.fastq.gz")
-        run_seqkit_common(
-            "fwd.fastq.gz", "rev.fastq.gz", f"{bc_dir}/test_mate1.fastq.gz"
-        )
-        run_seqkit_common(
-            "rev.fastq.gz",
-            f"{bc_dir}/test_mate1.fastq.gz",
-            f"{bc_dir}/test_mate2.fastq.gz",
-        )
+        if self.params["general"]["directory_style"] == "individual":
+            run_seqkit_common(
+                "fwd.fastq.gz", "rev.fastq.gz", f"{bc_dir}/test_mate1.fastq.gz"
+            )
+            run_seqkit_common(
+                "rev.fastq.gz",
+                f"{bc_dir}/test_mate1.fastq.gz",
+                f"{bc_dir}/test_mate2.fastq.gz",
+            )
+        else:
+            run_seqkit_common(
+                "fwd.fastq.gz",
+                "rev.fastq.gz",
+                f"{self.outdir}/{row['full_barcode']}_mate1.fastq.gz",
+            )
+            run_seqkit_common(
+                "rev.fastq.gz",
+                f"{self.outdir}/{row['full_barcode']}_mate1.fastq.gz",
+                f"{self.outdir}/{row['full_barcode']}_mate2.fastq.gz",
+            )
         os.remove("fwd.fastq.gz")
         os.remove("rev.fastq.gz")
 
@@ -162,27 +175,29 @@ class Demultiplexer:
             # if self.params["rna-map"]["run"]:
             #    self.__run_rna_map(bc_dir, all_mhs, rna_map_params)
             count += 1
-            if count > 100:
+            if count >= self.params["general"]["max"]:
+                log.info("max barcodes reached specified in params")
                 break
         # if self.params["rna-map"]["run"]:
         #    json.dump(all_mhs, open("output/BitVector_Files/mutation_histos.json", "w"))
 
 
-def setup_directories(df, dirname="data"):
+def setup_directories(df, style, dirname="data"):
     os.makedirs(dirname, exist_ok=True)
     bc = 0
     data = []
     for _, g in df.groupby("full_barcode"):
         bc_dir = f"{dirname}/bc-{bc:04d}"
-        os.makedirs(bc_dir, exist_ok=True)
-        g.to_json(f"{bc_dir}/constructs.json", orient="records")
-        f = open(f"{bc_dir}/test.fasta", "w")
-        for _, row in g.iterrows():
-            f.write(f">{row['name']}\n")
-            f.write(row["sequence"].replace("U", "T") + "\n")
-        f.close()
-        db_file_df = g[["name", "sequence", "structure"]]
-        db_file_df.to_csv(f"{bc_dir}/test.csv", index=False)
+        if style == "individual":
+            os.makedirs(bc_dir, exist_ok=True)
+            g.to_json(f"{bc_dir}/constructs.json", orient="records")
+            f = open(f"{bc_dir}/test.fasta", "w")
+            for _, row in g.iterrows():
+                f.write(f">{row['name']}\n")
+                f.write(row["sequence"].replace("U", "T") + "\n")
+            f.close()
+            db_file_df = g[["name", "sequence", "structure"]]
+            db_file_df.to_csv(f"{bc_dir}/test.csv", index=False)
         row = g.iloc[0]
         data_row = [
             row["name"],

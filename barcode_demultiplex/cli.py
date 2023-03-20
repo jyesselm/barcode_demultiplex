@@ -1,5 +1,6 @@
 import click
 import pandas as pd
+import yaml
 from pathlib import Path
 
 from barcode_demultiplex.demultiplex import demultiplex
@@ -32,6 +33,13 @@ log = get_logger("CLI")
     required=False,
     default=None,
     help="the path to the reverse fastq file",
+)
+@click.option(
+    "-pf",
+    "--param-file",
+    required=False,
+    default=None,
+    help="the path of a param file",
 )
 @click.option("-rr", "--run-rna-map", is_flag=True, help="should we run rna-map")
 @click.option(
@@ -69,10 +77,8 @@ def cli(
     fastq1,
     fastq2,
     helices,
-    run_rna_map,
     data_path,
-    max_barcodes,
-    include_all_rna_map_outputs,
+    **args,
 ):
     setup_applevel_logger()
     df = pd.read_csv(rna_csv)
@@ -81,7 +87,10 @@ def cli(
     for c in required_cols:
         if c not in df:
             raise ValueError(f"{c} is a required column for the input csv file!")
-    demultiplex(df, Path(fastq1), Path(fastq2), helices, data_path)
+    params = None
+    if args["param_file"] is not None:
+        params = yaml.load(open(args["param_file"]))
+    demultiplex(df, Path(fastq1), Path(fastq2), helices, data_path, params)
 
 
 if __name__ == "__main__":

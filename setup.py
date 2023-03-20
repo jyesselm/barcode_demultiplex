@@ -17,7 +17,7 @@ setup(
         "barcode_demultiplex/logger",
     ],
     include_package_data=True,
-    install_requires=requirements,
+    # install_requires=requirements,
     entry_points={
         "console_scripts": ["barcode_demultiplex = barcode_demultiplex.cli:cli"]
     },
