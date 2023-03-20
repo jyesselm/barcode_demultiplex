@@ -1,6 +1,7 @@
 wheel
 click
 pandas
+pyyaml
 numpy
 rna_seq_tools
 rna_map @ git+https://github.com/YesselmanLab/rna_map@main
