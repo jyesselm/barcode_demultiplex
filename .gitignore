@@ -1,5 +1,8 @@
 *.py[cod]
 *.idea
+.vscode
+data/
+examples/
 
 # mac 
 .DS_Store

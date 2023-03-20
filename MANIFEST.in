@@ -1,0 +1,2 @@
+include requirements.txt
+recursive-include barcode_demultiplex/resources *

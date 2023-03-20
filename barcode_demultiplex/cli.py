@@ -1,7 +1,12 @@
 import click
 import pandas as pd
+import yaml
+from pathlib import Path
 
-from barcode_demultiplex.demultiplex import *
+from barcode_demultiplex.demultiplex import demultiplex
+from barcode_demultiplex.logger import get_logger, setup_applevel_logger
+
+log = get_logger("CLI")
 
 
 # cli #########################################################################
@@ -30,12 +35,17 @@ from barcode_demultiplex.demultiplex import *
     help="the path to the reverse fastq file",
 )
 @click.option(
-    "-rd", "--run-dreem", is_flag=True, help="should we run dreem after?"
+    "-pf",
+    "--param-file",
+    required=False,
+    default=None,
+    help="the path of a param file",
 )
+@click.option("-rr", "--run-rna-map", is_flag=True, help="should we run rna-map")
 @click.option(
-    "--include-all-dreem-outputs",
+    "--include-all-rna-map-outputs",
     is_flag=True,
-    help="usually want only summary outputs but some cases want everythign from dreem",
+    help="usually want only summary outputs but some cases want everythign from rna-map",
 )
 @click.option(
     "-dp",
@@ -67,31 +77,20 @@ def cli(
     fastq1,
     fastq2,
     helices,
-    run_dreem,
     data_path,
-    max_barcodes,
-    include_all_dreem_outputs,
+    **args,
 ):
-    log = setup_applevel_logger()
+    setup_applevel_logger()
     df = pd.read_csv(rna_csv)
     log.info(f"{rna_csv} contains {len(df)} unique sequences")
     required_cols = "name,sequence,structure".split(",")
     for c in required_cols:
         if c not in df:
-            raise ValueError(
-                f"{c} is a required column for the input csv file!"
-            )
-    df = find_barcodes(df, helices)
-    df_sum = setup_directories(df, data_path)
-    log.info(f"{len(df_sum)} unique barcodes found!")
-    demult = Seqkitdemultiplexer()
-    demult.max = max_barcodes
-    if fastq2 is None:
-        demult.check_rev = False
-    demult.run(df_sum, fastq1, fastq2)
-
-    if run_dreem:
-        run_dreem_prog(df_sum, max_barcodes, include_all_dreem_outputs)
+            raise ValueError(f"{c} is a required column for the input csv file!")
+    params = None
+    if args["param_file"] is not None:
+        params = yaml.load(open(args["param_file"]))
+    demultiplex(df, Path(fastq1), Path(fastq2), helices, data_path, params)
 
 
 if __name__ == "__main__":
