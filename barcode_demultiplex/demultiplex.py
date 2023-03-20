@@ -27,39 +27,10 @@ log = get_logger("DEMULTIPLEX")
 LIB_DIR = Path(os.path.dirname(os.path.realpath(__file__)))
 
 
-<<<<<<< HEAD
-    def __run_fwd_demultiplex(self, row, fastq1):
-        cmds = []
-        count = 0
-        for seqs, bounds in zip(row["barcodes"], row["barcode_bounds"]):
-            for seq, bound in zip(seqs, bounds):
-                b1, b2 = bound
-                if b2 + 10 >= self.r1_length:
-                    continue
-                count += 1
-                if count == 1:
-                    cmds.append(
-                        f'seqkit grep -s -p "{seq}" -m 1 -P -R {b1 - 10}:{b2 + 10} '
-                        f"{fastq1} "
-                    )
-                else:
-                    cmds.append(
-                        f'seqkit grep -s -p "{seq}" -m 1 -P -R {b1 - 10}:{b2 + 10} '
-                    )
-        cmd = "| ".join(cmds) + f"> {row['path']}/test_fwd.fastq"
-        print(cmd)
-        subprocess.call(cmd, shell=True)
-=======
 # TODO test what happens when there is an empty fastq file for rna_map
 # TODO if is not summary true need to recombine the bitvector files
->>>>>>> jdy/refactor
 
 
-<<<<<<< HEAD
-        cmd = "| ".join(cmds) + f"> {row['path']}/test_rev.fastq"
-        print(cmd)
-        subprocess.call(cmd, shell=True)
-=======
 def get_read_length(fastq_file: Path):
     is_gzipped = fastq_file.suffix == ".gz"
     seq_len = -1
@@ -82,7 +53,6 @@ def get_read_length(fastq_file: Path):
                         seq_len = len(line)
     log.info(f"read length is {seq_len} for {fastq_file} (count={count})")
     return seq_len
->>>>>>> jdy/refactor
 
 
 class Demultiplexer:
