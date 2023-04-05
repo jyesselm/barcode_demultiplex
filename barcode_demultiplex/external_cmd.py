@@ -98,6 +98,7 @@ def run_seqkit_grep_fwd(
     cmd = get_seqkit_grep_fwd_cmd(
         barcode_seqs, barcode_bounds, in_fastq_file, out_fastq_file, opts
     )
+    print(cmd)
     return run_command(cmd)
 
 
@@ -149,6 +150,7 @@ def run_seqkit_grep_rev(
     cmd = get_seqkit_grep_rev_cmd(
         barcode_seqs, barcode_bounds, in_fastq_file, out_fastq_file, opts
     )
+    print(cmd)
     return run_command(cmd)
 
 
@@ -169,4 +171,5 @@ def run_seqkit_common(in_fastq_file_1, in_fastq_file_2, out_fastq_file):
     :return: the stdout/stderr of runs
     """
     cmd = f"seqkit common {in_fastq_file_1} {in_fastq_file_2} -o {out_fastq_file}"
+    print(cmd)
     run_command(cmd)
