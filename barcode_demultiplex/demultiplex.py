@@ -88,19 +88,19 @@ class Demultiplexer:
         rev_opts = SeqkitGrepOpts(
             read_len=self.rev_read_len, seq_len=len(row["sequence"]), **rev_args
         )
-        if self.params["fwd"]["check"]:
-            run_seqkit_grep_fwd(
-                fwd_seqs, fwd_bounds, fastq1, f"{bc_dir}/fwd.fastq.gz", fwd_opts
-            )
-        else:
-            shutil.copy(fastq1, f"{bc_dir}/fwd.fastq.gz")
-        if self.params["rev"]["check"]:
-            run_seqkit_grep_rev(
-                rev_seqs, rev_bounds, fastq2, f"{bc_dir}/rev.fastq.gz", rev_opts
-            )
-        else:
-            shutil.copy(fastq2, f"{bc_dir}/rev.fastq.gz")
         if self.params["general"]["directory_style"] == "individual":
+            if self.params["fwd"]["check"]:
+                run_seqkit_grep_fwd(
+                    fwd_seqs, fwd_bounds, fastq1, f"{bc_dir}/fwd.fastq.gz", fwd_opts
+                )
+            else:
+                shutil.copy(fastq1, f"{bc_dir}/fwd.fastq.gz")
+            if self.params["rev"]["check"]:
+                run_seqkit_grep_rev(
+                    rev_seqs, rev_bounds, fastq2, f"{bc_dir}/rev.fastq.gz", rev_opts
+                )
+            else:
+                shutil.copy(fastq2, f"{bc_dir}/rev.fastq.gz")
             run_seqkit_common(
                 f"{bc_dir}/fwd.fastq.gz",
                 f"{bc_dir}/rev.fastq.gz",
@@ -112,13 +112,33 @@ class Demultiplexer:
                 f"{bc_dir}/test_mate2.fastq.gz",
             )
         else:
+            if self.params["fwd"]["check"]:
+                run_seqkit_grep_fwd(
+                    fwd_seqs,
+                    fwd_bounds,
+                    fastq1,
+                    f"{self.outdir}/fwd.fastq.gz",
+                    fwd_opts,
+                )
+            else:
+                shutil.copy(fastq1, f"{self.outdir}/fwd.fastq.gz")
+            if self.params["rev"]["check"]:
+                run_seqkit_grep_rev(
+                    rev_seqs,
+                    rev_bounds,
+                    fastq2,
+                    f"{self.outdir}/rev.fastq.gz",
+                    rev_opts,
+                )
+            else:
+                shutil.copy(fastq2, f"{self.outdir}/rev.fastq.gz")
             run_seqkit_common(
                 f"{self.outdir}/fwd.fastq.gz",
                 f"{self.outdir}/rev.fastq.gz",
                 f"{self.outdir}/{row['full_barcode']}_mate1.fastq.gz",
             )
             run_seqkit_common(
-                "rev.fastq.gz",
+                f"{self.outdir}/rev.fastq.gz",
                 f"{self.outdir}/{row['full_barcode']}_mate1.fastq.gz",
                 f"{self.outdir}/{row['full_barcode']}_mate2.fastq.gz",
             )
