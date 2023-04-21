@@ -113,8 +113,8 @@ class Demultiplexer:
             )
         else:
             run_seqkit_common(
-                f"{bc_dir}/fwd.fastq.gz",
-                f"{bc_dir}/rev.fastq.gz",
+                f"{self.outdir}/fwd.fastq.gz",
+                f"{self.outdir}/rev.fastq.gz",
                 f"{self.outdir}/{row['full_barcode']}_mate1.fastq.gz",
             )
             run_seqkit_common(
@@ -122,8 +122,8 @@ class Demultiplexer:
                 f"{self.outdir}/{row['full_barcode']}_mate1.fastq.gz",
                 f"{self.outdir}/{row['full_barcode']}_mate2.fastq.gz",
             )
-        os.remove(f"{bc_dir}/fwd.fastq.gz")
-        os.remove(f"{bc_dir}/rev.fastq.gz")
+        os.remove(f"{self.outdir}/fwd.fastq.gz")
+        os.remove(f"{self.outdir}/rev.fastq.gz")
 
     def __run_rna_map(self, bc_dir, all_mhs, rna_map_params):
         fastq1_path = f"{bc_dir}/test_mate1.fastq.gz"
