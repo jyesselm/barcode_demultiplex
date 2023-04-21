@@ -172,4 +172,14 @@ def run_seqkit_common(in_fastq_file_1, in_fastq_file_2, out_fastq_file):
     """
     cmd = f"seqkit common {in_fastq_file_1} {in_fastq_file_2} -o {out_fastq_file}"
     print(cmd)
-    run_command(cmd)
+    return run_command(cmd)
+
+
+def get_seqkit_stats_cmd(fastq_file) -> str:
+    cmd = f"seqkit stats {fastq_file}"
+    return cmd
+
+
+def run_seqkit_stats(fastq_file):
+    cmd = get_seqkit_stats_cmd(fastq_file)
+    return run_command(cmd)

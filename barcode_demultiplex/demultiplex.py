@@ -15,6 +15,7 @@ from barcode_demultiplex.external_cmd import (
     run_seqkit_grep_fwd,
     run_seqkit_grep_rev,
     run_seqkit_common,
+    run_seqkit_stats,
 )
 from barcode_demultiplex.logger import get_logger
 
@@ -88,26 +89,32 @@ class Demultiplexer:
             read_len=self.rev_read_len, seq_len=len(row["sequence"]), **rev_args
         )
         if self.params["fwd"]["check"]:
-            run_seqkit_grep_fwd(fwd_seqs, fwd_bounds, fastq1, "fwd.fastq.gz", fwd_opts)
+            run_seqkit_grep_fwd(
+                fwd_seqs, fwd_bounds, fastq1, f"{bc_dir}/fwd.fastq.gz", fwd_opts
+            )
         else:
-            shutil.copy(fastq1, "fwd.fastq.gz")
+            shutil.copy(fastq1, f"{bc_dir}/fwd.fastq.gz")
         if self.params["rev"]["check"]:
-            run_seqkit_grep_rev(rev_seqs, rev_bounds, fastq2, "rev.fastq.gz", rev_opts)
+            run_seqkit_grep_rev(
+                rev_seqs, rev_bounds, fastq2, f"{bc_dir}/rev.fastq.gz", rev_opts
+            )
         else:
-            shutil.copy(fastq2, "rev.fastq.gz")
+            shutil.copy(fastq2, f"{bc_dir}/rev.fastq.gz")
         if self.params["general"]["directory_style"] == "individual":
             run_seqkit_common(
-                "fwd.fastq.gz", "rev.fastq.gz", f"{bc_dir}/test_mate1.fastq.gz"
+                f"{bc_dir}/fwd.fastq.gz",
+                f"{bc_dir}/rev.fastq.gz",
+                f"{bc_dir}/test_mate1.fastq.gz",
             )
             run_seqkit_common(
-                "rev.fastq.gz",
+                f"{bc_dir}/rev.fastq.gz",
                 f"{bc_dir}/test_mate1.fastq.gz",
                 f"{bc_dir}/test_mate2.fastq.gz",
             )
         else:
             run_seqkit_common(
-                "fwd.fastq.gz",
-                "rev.fastq.gz",
+                f"{bc_dir}/fwd.fastq.gz",
+                f"{bc_dir}/rev.fastq.gz",
                 f"{self.outdir}/{row['full_barcode']}_mate1.fastq.gz",
             )
             run_seqkit_common(
@@ -115,8 +122,8 @@ class Demultiplexer:
                 f"{self.outdir}/{row['full_barcode']}_mate1.fastq.gz",
                 f"{self.outdir}/{row['full_barcode']}_mate2.fastq.gz",
             )
-        os.remove("fwd.fastq.gz")
-        os.remove("rev.fastq.gz")
+        os.remove(f"{bc_dir}/fwd.fastq.gz")
+        os.remove(f"{bc_dir}/rev.fastq.gz")
 
     def __run_rna_map(self, bc_dir, all_mhs, rna_map_params):
         fastq1_path = f"{bc_dir}/test_mate1.fastq.gz"
