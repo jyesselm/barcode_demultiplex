@@ -5,6 +5,10 @@ from dataclasses import dataclass
 
 from seq_tools.sequence import get_reverse_complement
 
+from barcode_demultiplex.logger import get_logger
+
+log = get_logger("EXTERNAL-CMD")
+
 
 @dataclass(frozen=True, order=True)
 class ProgOutput:
@@ -98,7 +102,7 @@ def run_seqkit_grep_fwd(
     cmd = get_seqkit_grep_fwd_cmd(
         barcode_seqs, barcode_bounds, in_fastq_file, out_fastq_file, opts
     )
-    print(cmd)
+    log.debug(f"SEQKIT-GREP-FWD: {cmd}")
     return run_command(cmd)
 
 
@@ -150,7 +154,7 @@ def run_seqkit_grep_rev(
     cmd = get_seqkit_grep_rev_cmd(
         barcode_seqs, barcode_bounds, in_fastq_file, out_fastq_file, opts
     )
-    print(cmd)
+    log.debug(f"SEQKIT-GREP-REV: {cmd}")
     return run_command(cmd)
 
 
@@ -171,7 +175,7 @@ def run_seqkit_common(in_fastq_file_1, in_fastq_file_2, out_fastq_file):
     :return: the stdout/stderr of runs
     """
     cmd = f"seqkit common {in_fastq_file_1} {in_fastq_file_2} -o {out_fastq_file}"
-    print(cmd)
+    log.debug(f"SEQKIT-COMMON: {cmd}")
     return run_command(cmd)
 
 

@@ -57,6 +57,14 @@ def test_find_helix_barcodes():
     assert row["barcode_bounds"][0][1] == [139, 146]
 
 
+def test_find_helix_barcodes_multiple():
+    path = TEST_DIR / "resources/test_cases/C0156"
+    df = pd.read_csv(path / "C0156.csv")
+    df = df[["name", "sequence", "structure"]]
+    helices = [[1, 0, 8]]
+    df_barcodes = find_helix_barcodes(df, helices)
+
+
 def test_get_read_length():
     path = TEST_DIR / "resources/test_cases/C0098"
     R1_path = path / "R1.sub.fastq.gz"

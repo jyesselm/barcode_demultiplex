@@ -9,6 +9,8 @@ import gzip
 import json
 
 from rna_secstruct import SecStruct
+from seq_tools.dataframe import calc_edit_distance
+
 from barcode_demultiplex.external_cmd import (
     does_program_exist,
     SeqkitGrepOpts,
@@ -42,7 +44,7 @@ def get_read_length(fastq_file: Path):
                 line = line.rstrip()
                 if line_number % 4 == 1:
                     count += 1
-                    if seq_len > len(line):
+                    if seq_len < len(line):
                         seq_len = len(line)
     else:
         with gzip.open(fastq_file, "rt") as f:
@@ -54,6 +56,27 @@ def get_read_length(fastq_file: Path):
                         seq_len = len(line)
     log.info(f"read length is {seq_len} for {fastq_file} (count={count})")
     return seq_len
+
+
+def min_max_for_sublist(sublists):
+    return [min([s[0] for s in sublists]), max([s[1] for s in sublists])]
+
+
+def get_barcode_bounds_for_construct_group(group):
+    num_structures = len(group["barcode_bounds"].iloc[0])
+    # For each structure
+    results = []
+    for i in range(num_structures):
+        # Extract the sublists for the current structure across all rows
+        current_structure_sublists = [row[i] for row in group["barcode_bounds"]]
+        # Transpose to group corresponding sublists
+        transposed_lists = list(zip(*current_structure_sublists))
+        # Find the min and max values for each group of corresponding sublists
+        result_for_current_structure = [
+            min_max_for_sublist(sublist) for sublist in transposed_lists
+        ]
+        results.append(result_for_current_structure)
+    return results
 
 
 class Demultiplexer:
@@ -71,9 +94,11 @@ class Demultiplexer:
         self.fwd_read_len = 100
         self.rev_read_len = 100
 
-    def __run_seqkit(self, fastq1, fastq2, row, bc_dir):
-        barcode_seqs = row["barcodes"]
-        barcode_bounds = row["barcode_bounds"]
+    def __run_seqkit(self, fastq1, fastq2, df_constructs, bc_dir):
+        full_barcode = df_constructs.iloc[0]["full_barcode"]
+        barcode_seqs = df_constructs.iloc[0]["barcodes"]
+        barcode_bounds = get_barcode_bounds_for_construct_group(df_constructs)
+        # this assumes only 1 barcode ...
         fwd_seqs = [seqs[0] for seqs in barcode_seqs]
         fwd_bounds = [bounds[0] for bounds in barcode_bounds]
         rev_seqs = [seqs[1] for seqs in barcode_seqs]
@@ -82,12 +107,17 @@ class Demultiplexer:
         del fwd_args["check"]
         rev_args = self.params["rev"].copy()
         del rev_args["check"]
+        avg_seq_len = np.mean(
+            [len(row["sequence"]) for _, row in df_constructs.iterrows()]
+        )
+        avg_seq_len = int(avg_seq_len)
         fwd_opts = SeqkitGrepOpts(
-            read_len=self.fwd_read_len, seq_len=len(row["sequence"]), **fwd_args
+            read_len=self.fwd_read_len, seq_len=avg_seq_len, **fwd_args
         )
         rev_opts = SeqkitGrepOpts(
-            read_len=self.rev_read_len, seq_len=len(row["sequence"]), **rev_args
+            read_len=self.rev_read_len, seq_len=avg_seq_len, **rev_args
         )
+        # TODO probably break this up into seperate functions this is too long
         if self.params["general"]["directory_style"] == "individual":
             if self.params["fwd"]["check"]:
                 run_seqkit_grep_fwd(
@@ -135,15 +165,15 @@ class Demultiplexer:
             run_seqkit_common(
                 f"{self.outdir}/fwd.fastq.gz",
                 f"{self.outdir}/rev.fastq.gz",
-                f"{self.outdir}/{row['full_barcode']}_mate1.fastq.gz",
+                f"{self.outdir}/{full_barcode}_mate1.fastq.gz",
             )
             run_seqkit_common(
                 f"{self.outdir}/rev.fastq.gz",
-                f"{self.outdir}/{row['full_barcode']}_mate1.fastq.gz",
-                f"{self.outdir}/{row['full_barcode']}_mate2.fastq.gz",
+                f"{self.outdir}/{full_barcode}_mate1.fastq.gz",
+                f"{self.outdir}/{full_barcode}_mate2.fastq.gz",
             )
-        os.remove(f"{self.outdir}/fwd.fastq.gz")
-        os.remove(f"{self.outdir}/rev.fastq.gz")
+            os.remove(f"{self.outdir}/fwd.fastq.gz")
+            os.remove(f"{self.outdir}/rev.fastq.gz")
 
     def __run_rna_map(self, bc_dir, all_mhs, rna_map_params):
         fastq1_path = f"{bc_dir}/test_mate1.fastq.gz"
@@ -184,29 +214,32 @@ class Demultiplexer:
         if not fastq2.parts and not fastq2.is_file():
             log.error(f"{fastq2} not found")
             raise ValueError(f"{fastq2} not found")
-        param_path = LIB_DIR / "resources/rna-map.yml"
-        log.info(f"using rna-map params from {param_path}")
-        rna_map_params = yaml.safe_load(open(param_path))
+
         self.fwd_read_len = get_read_length(fastq1)
         self.rev_read_len = get_read_length(fastq2)
         if self.params["rna-map"]["run"]:
+            param_path = LIB_DIR / "resources/rna-map.yml"
+            log.info(f"using rna-map params from {param_path}")
+            rna_map_params = yaml.safe_load(open(param_path))
             log.info("running rna-map on all barcodes")
             log.info("data will be found in output/BitVector_Files/")
             os.makedirs("output/BitVector_Files/", exist_ok=True)
         all_mhs = {}
         count = 0
-        for _, row in self.df_dirs.iterrows():
-            bc_dir = row["path"]
-            log.info(bc_dir)
-            self.__run_seqkit(fastq1, fastq2, row, bc_dir)
-            # if self.params["rna-map"]["run"]:
-            #    self.__run_rna_map(bc_dir, all_mhs, rna_map_params)
+        for barcode, group in self.df_barcode.groupby("full_barcode"):
+            if len(group) == 1:
+                continue
+            bc_dir = f"bc-{count:04d}"
+            log.info(f"on barcode {count+1} - {barcode}")
+            self.__run_seqkit(fastq1, fastq2, group, bc_dir)
+            if self.params["rna-map"]["run"]:
+                self.__run_rna_map(bc_dir, all_mhs, rna_map_params)
             count += 1
             if count >= self.params["general"]["max"]:
                 log.info("max barcodes reached specified in params")
                 break
-        # if self.params["rna-map"]["run"]:
-        #    json.dump(all_mhs, open("output/BitVector_Files/mutation_histos.json", "w"))
+        if self.params["rna-map"]["run"]:
+            json.dump(all_mhs, open("output/BitVector_Files/mutation_histos.json", "w"))
 
 
 def setup_directories(df, style, dirname="data"):
@@ -256,6 +289,8 @@ def find_helix_barcodes(df, helices):
     :return: A dataframe with the same columns as the input, plus the columns barocodes,
     barcode_bounds, and full_barcode
     """
+    if len(helices) > 1:
+        raise ValueError("only supporting one helix now! Will be changed soon!!")
 
     def __get_subsection(h1, h2, pos1, pos2):
         h1_new = h1[pos1 : pos2 + 1]

@@ -13,7 +13,7 @@ rev:
   mut_num: 1
   buffer: 5
 rna-map: 
-  run: True
+  run: False
   param-file: ""
   summary-only: True
 general:

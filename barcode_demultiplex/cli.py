@@ -72,15 +72,17 @@ log = get_logger("CLI")
     "the barcode is from the beginning of the helix to the 8th position this can "
     "be specified as -helix 1 0 8 assuming this is the second helix as 0 is the first",
 )
+@click.option("-debug", "--debug", is_flag=True)
 def cli(
     rna_csv,
     fastq1,
     fastq2,
     helices,
     data_path,
+    debug,
     **args,
 ):
-    setup_applevel_logger()
+    setup_applevel_logger(is_debug=debug)
     df = pd.read_csv(rna_csv)
     log.info(f"{rna_csv} contains {len(df)} unique sequences")
     required_cols = "name,sequence,structure".split(",")
@@ -89,7 +91,7 @@ def cli(
             raise ValueError(f"{c} is a required column for the input csv file!")
     params = None
     if args["param_file"] is not None:
-        params = yaml.load(open(args["param_file"]))
+        params = yaml.load(open(args["param_file"]), Loader=yaml.FullLoader)
     demultiplex(df, Path(fastq1), Path(fastq2), helices, data_path, params)
 
 
